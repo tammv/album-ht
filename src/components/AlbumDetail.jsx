@@ -5,6 +5,7 @@ import UploadModal from './UploadModal.jsx';
 import Lightbox from './Lightbox.jsx';
 import Flipbook from './Flipbook.jsx';
 import FrameWorkshop from './FrameWorkshop.jsx';
+import CoverStudio from './CoverStudio.jsx';
 
 export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
   const toast = useToast();
@@ -91,14 +92,18 @@ export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
           {album.desc && <p className="text-xs sm:text-sm text-slate-600 italic font-light pt-1">{album.desc}</p>}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button id="open-flipbook" onClick={needPhotos(() => setModal('flip'))} className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-sm font-medium shadow-md shadow-amber-200 transition flex items-center gap-2">
-            <i className="fa-solid fa-book-open" /> Lật Sách Ảnh 3D
+        <div className="flex flex-wrap items-center gap-2">
+          <button id="open-cover-studio" onClick={() => setModal('cover')} className="px-3.5 py-2.5 bg-gradient-to-r from-purple-600 via-rose-600 to-amber-500 hover:opacity-95 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-rose-200 transition flex items-center gap-2 active:scale-95">
+            <i className="fa-solid fa-wand-magic-sparkles" />
+            <span>Tạo Bìa Sách AI</span>
           </button>
-          <button id="open-slideshow" onClick={needPhotos(() => setModal({ lightbox: 0, play: true }))} className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-medium shadow-sm transition flex items-center gap-2">
+          <button id="open-flipbook" onClick={needPhotos(() => setModal('flip'))} className="px-3.5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs sm:text-sm font-medium shadow-md shadow-amber-200 transition flex items-center gap-2">
+            <i className="fa-solid fa-book-open" /> Lật Sách Ảnh
+          </button>
+          <button id="open-slideshow" onClick={needPhotos(() => setModal({ lightbox: 0, play: true }))} className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs sm:text-sm font-medium shadow-sm transition flex items-center gap-2">
             <i className="fa-solid fa-play" /> Trình Chiếu
           </button>
-          <button id="open-upload" onClick={() => setModal('upload')} className="btn-rose">
+          <button id="open-upload" onClick={() => setModal('upload')} className="btn-rose text-xs sm:text-sm py-2.5">
             <i className="fa-solid fa-cloud-arrow-up" /> Thêm Ảnh
           </button>
           <button id="delete-album" onClick={removeAlbum} title="Xoá album" className="p-2.5 rounded-xl border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-200 bg-white transition">
@@ -154,6 +159,17 @@ export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
 
       {modal === 'upload' && <UploadModal albumId={albumId} onClose={() => setModal(null)} onUploaded={load} />}
       {modal === 'flip' && <Flipbook album={album} photos={photos} onClose={() => setModal(null)} />}
+      {modal === 'cover' && (
+        <CoverStudio
+          album={album}
+          photos={photos}
+          onClose={() => setModal(null)}
+          onSaved={(newCover) => {
+            setAlbum((a) => ({ ...a, coverPhoto: newCover }));
+            load();
+          }}
+        />
+      )}
       {modal?.lightbox !== undefined && (
         <Lightbox
           photos={photos}

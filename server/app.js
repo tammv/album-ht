@@ -157,8 +157,17 @@ app.post('/api/albums/:id/photos', requireAdmin, h(async (req, res) => {
   const docs = items
     .filter((p) => /^https?:\/\//.test(p.url || ''))
     .map((p) => ({
-      album: album._id, url: p.url, publicId: p.publicId || '',
-      caption: p.caption || '', tags: normalizeTags(p.tags), width: p.width, height: p.height,
+      album: album._id,
+      url: p.url,
+      publicId: p.publicId || '',
+      caption: p.caption || '',
+      tags: normalizeTags(p.tags),
+      locationName: p.locationName ? String(p.locationName).trim() : '',
+      mapUrl: p.mapUrl ? String(p.mapUrl).trim() : '',
+      lat: typeof p.lat === 'number' ? p.lat : undefined,
+      lng: typeof p.lng === 'number' ? p.lng : undefined,
+      width: p.width,
+      height: p.height,
     }));
   if (!docs.length) throw new HttpError(400, 'Không có ảnh hợp lệ');
   const created = await Photo.insertMany(docs);
@@ -174,6 +183,10 @@ app.patch('/api/photos/:id', requireAdmin, h(async (req, res) => {
   assertAccess(req, await findAlbum(photo.album));
   if ('caption' in req.body) photo.caption = req.body.caption;
   if ('tags' in req.body) photo.tags = normalizeTags(req.body.tags);
+  if ('locationName' in req.body) photo.locationName = String(req.body.locationName).trim();
+  if ('mapUrl' in req.body) photo.mapUrl = String(req.body.mapUrl).trim();
+  if ('lat' in req.body) photo.lat = typeof req.body.lat === 'number' ? req.body.lat : undefined;
+  if ('lng' in req.body) photo.lng = typeof req.body.lng === 'number' ? req.body.lng : undefined;
   await photo.save();
   res.json(photo);
 }));

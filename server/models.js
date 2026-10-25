@@ -24,6 +24,10 @@ const photoSchema = new Schema(
     publicId: { type: String, default: '' }, // rỗng nếu ảnh thêm bằng URL ngoài
     caption: { type: String, default: '', maxlength: 300 },
     tags: { type: [String], default: [], index: true },
+    locationName: { type: String, default: '', maxlength: 200 }, // Tên địa điểm check-in
+    mapUrl: { type: String, default: '', maxlength: 500 }, // Đường link Google Maps
+    lat: Number, // Vĩ độ
+    lng: Number, // Kinh độ
     width: Number,
     height: Number,
   },
