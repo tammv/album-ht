@@ -1,0 +1,188 @@
+import express from 'express';
+import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
+import { connectDB } from './db.js';
+import { Album, Photo, normalizeTags, publicAlbum } from './models.js';
+import { signUpload, destroyImages } from './cloudinary.js';
+import { canAccess, signAlbumToken, HttpError } from './auth.js';
+
+const app = express();
+app.use(express.json({ limit: '1mb' }));
+
+// Bọc handler async để lỗi được đẩy vào error middleware
+const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// Kết nối DB trước mọi route
+app.use('/api', h(async (_req, _res, next) => { await connectDB(); next(); }));
+
+/**
+ * Bảo vệ thao tác ghi (tạo/xoá) bằng ADMIN_KEY (tuỳ chọn).
+ * Nếu không đặt ADMIN_KEY thì ai cũng ghi được – chỉ nên dùng khi dev.
+ */
+const requireAdmin = (req, _res, next) => {
+  const key = process.env.ADMIN_KEY;
+  if (key && req.get('x-admin-key') !== key) throw new HttpError(401, 'Sai mã quản trị');
+  next();
+};
+
+const findAlbum = async (id, withPin = false) => {
+  if (!mongoose.isValidObjectId(id)) throw new HttpError(404, 'Không tìm thấy album');
+  const q = Album.findById(id);
+  if (withPin) q.select('+pinHash');
+  const album = await q;
+  if (!album) throw new HttpError(404, 'Không tìm thấy album');
+  return album;
+};
+
+const assertAccess = (req, album) => {
+  if (!canAccess(req, album)) throw new HttpError(403, 'Album đã khoá, cần nhập mã PIN');
+};
+
+// ---------- Health ----------
+app.get('/api/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+app.get('/api/config', (_req, res) => res.json({ adminRequired: Boolean(process.env.ADMIN_KEY) }));
+
+app.post('/api/admin/verify', requireAdmin, (_req, res) => res.json({ ok: true }));
+
+// ---------- Albums ----------
+app.get('/api/albums', h(async (req, res) => {
+  const { q, year } = req.query;
+  const filter = {};
+  if (year && year !== 'all') filter.year = Number(year);
+  if (q) {
+    const rx = new RegExp(String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    filter.$or = [{ title: rx }, { location: rx }, { desc: rx }];
+  }
+  const albums = await Album.find(filter).sort({ year: -1, createdAt: -1 }).lean();
+  const [years, totals] = await Promise.all([
+    Album.distinct('year'),
+    Album.aggregate([{ $group: { _id: null, albums: { $sum: 1 }, photos: { $sum: '$photoCount' }, locked: { $sum: { $cond: ['$isLocked', 1, 0] } } } }]),
+  ]);
+  res.json({
+    albums: albums.map(publicAlbum),
+    years: years.sort((a, b) => b - a),
+    stats: { albums: 0, photos: 0, locked: 0, ...(totals[0] || {}), years: years.length },
+  });
+}));
+
+app.post('/api/albums', requireAdmin, h(async (req, res) => {
+  const { title, location, year, desc, isLocked, pin } = req.body;
+  if (isLocked && !/^\d{4}$/.test(pin || '')) throw new HttpError(400, 'Mã PIN phải gồm 4 chữ số');
+  const album = await Album.create({
+    title, location, year: Number(year), desc,
+    isLocked: Boolean(isLocked),
+    pinHash: isLocked ? await bcrypt.hash(pin, 10) : undefined,
+  });
+  res.status(201).json(publicAlbum(album));
+}));
+
+app.get('/api/albums/:id', h(async (req, res) => {
+  const album = await findAlbum(req.params.id);
+  const unlocked = canAccess(req, album);
+  res.json({ ...publicAlbum(album), ...(unlocked ? { coverPhoto: album.coverPhoto } : {}), unlocked });
+}));
+
+app.patch('/api/albums/:id', requireAdmin, h(async (req, res) => {
+  const album = await findAlbum(req.params.id);
+  assertAccess(req, album);
+  for (const k of ['title', 'location', 'desc', 'coverPhoto']) if (k in req.body) album[k] = req.body[k];
+  if ('year' in req.body) album.year = Number(req.body.year);
+  await album.save();
+  res.json(publicAlbum(album));
+}));
+
+app.delete('/api/albums/:id', requireAdmin, h(async (req, res) => {
+  const album = await findAlbum(req.params.id);
+  assertAccess(req, album);
+  const photos = await Photo.find({ album: album._id }, 'publicId').lean();
+  await destroyImages(photos.map((p) => p.publicId));
+  await Photo.deleteMany({ album: album._id });
+  await album.deleteOne();
+  res.json({ ok: true });
+}));
+
+app.post('/api/albums/:id/unlock', h(async (req, res) => {
+  const album = await findAlbum(req.params.id, true);
+  if (!album.isLocked) return res.json({ token: signAlbumToken(album._id) });
+  const ok = await bcrypt.compare(String(req.body.pin || ''), album.pinHash || '');
+  if (!ok) throw new HttpError(401, 'Sai mã PIN rồi 💔');
+  res.json({ token: signAlbumToken(album._id) });
+}));
+
+// ---------- Photos ----------
+app.get('/api/albums/:id/photos', h(async (req, res) => {
+  const album = await findAlbum(req.params.id);
+  assertAccess(req, album);
+  const filter = { album: album._id };
+  if (req.query.tag) filter.tags = String(req.query.tag).toLowerCase();
+  if (req.query.q) filter.caption = new RegExp(String(req.query.q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  const [photos, tags] = await Promise.all([
+    Photo.find(filter).sort({ createdAt: 1 }).lean(),
+    Photo.distinct('tags', { album: album._id }),
+  ]);
+  res.json({ photos, tags: tags.sort() });
+}));
+
+/** Lấy chữ ký để client upload thẳng lên Cloudinary. */
+app.post('/api/albums/:id/upload-signature', requireAdmin, h(async (req, res) => {
+  const album = await findAlbum(req.params.id);
+  assertAccess(req, album);
+  res.json(signUpload(album._id));
+}));
+
+/** Lưu metadata ảnh (sau khi upload Cloudinary xong, hoặc ảnh bằng URL ngoài). */
+app.post('/api/albums/:id/photos', requireAdmin, h(async (req, res) => {
+  const album = await findAlbum(req.params.id);
+  assertAccess(req, album);
+  const items = Array.isArray(req.body) ? req.body : [req.body];
+  const docs = items
+    .filter((p) => /^https?:\/\//.test(p.url || ''))
+    .map((p) => ({
+      album: album._id, url: p.url, publicId: p.publicId || '',
+      caption: p.caption || '', tags: normalizeTags(p.tags), width: p.width, height: p.height,
+    }));
+  if (!docs.length) throw new HttpError(400, 'Không có ảnh hợp lệ');
+  const created = await Photo.insertMany(docs);
+  album.photoCount += created.length;
+  if (!album.coverPhoto) album.coverPhoto = created[0].url;
+  await album.save();
+  res.status(201).json(created);
+}));
+
+app.patch('/api/photos/:id', requireAdmin, h(async (req, res) => {
+  const photo = await Photo.findById(req.params.id);
+  if (!photo) throw new HttpError(404, 'Không tìm thấy ảnh');
+  assertAccess(req, await findAlbum(photo.album));
+  if ('caption' in req.body) photo.caption = req.body.caption;
+  if ('tags' in req.body) photo.tags = normalizeTags(req.body.tags);
+  await photo.save();
+  res.json(photo);
+}));
+
+app.delete('/api/photos/:id', requireAdmin, h(async (req, res) => {
+  const photo = await Photo.findById(req.params.id);
+  if (!photo) throw new HttpError(404, 'Không tìm thấy ảnh');
+  const album = await findAlbum(photo.album);
+  assertAccess(req, album);
+  await destroyImages([photo.publicId]);
+  await photo.deleteOne();
+  album.photoCount = Math.max(0, album.photoCount - 1);
+  if (album.coverPhoto === photo.url) {
+    const next = await Photo.findOne({ album: album._id }).sort({ createdAt: 1 });
+    album.coverPhoto = next?.url || '';
+  }
+  await album.save();
+  res.json({ ok: true });
+}));
+
+// ---------- Errors ----------
+app.use('/api', (_req, _res, next) => next(new HttpError(404, 'API không tồn tại')));
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  const status = err.status || (err.name === 'ValidationError' ? 400 : 500);
+  if (status === 500) console.error(err);
+  res.status(status).json({ error: err.message || 'Lỗi máy chủ' });
+});
+
+export default app;
