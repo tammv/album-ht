@@ -12,7 +12,30 @@ app.use(express.json({ limit: '1mb' }));
 // Bọc handler async để lỗi được đẩy vào error middleware
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// Kết nối DB trước mọi route
+// ---------- Health & Config (Không yêu cầu DB để kiểm tra nhanh) ----------
+app.get('/api/health', async (_req, res) => {
+  let dbStatus = 'disconnected';
+  try {
+    await connectDB();
+    dbStatus = 'connected';
+  } catch (err) {
+    dbStatus = `error: ${err.message}`;
+  }
+  res.json({
+    ok: dbStatus === 'connected',
+    database: dbStatus,
+    time: new Date().toISOString(),
+    env: {
+      hasMongoUri: Boolean(process.env.MONGODB_URI),
+      hasCloudinary: Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY),
+      hasJwtSecret: Boolean(process.env.JWT_SECRET),
+    }
+  });
+});
+
+app.get('/api/config', (_req, res) => res.json({ adminRequired: Boolean(process.env.ADMIN_KEY) }));
+
+// Kết nối DB cho các routes nghiệp vụ
 app.use('/api', h(async (_req, _res, next) => { await connectDB(); next(); }));
 
 /**
@@ -37,11 +60,6 @@ const findAlbum = async (id, withPin = false) => {
 const assertAccess = (req, album) => {
   if (!canAccess(req, album)) throw new HttpError(403, 'Album đã khoá, cần nhập mã PIN');
 };
-
-// ---------- Health ----------
-app.get('/api/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
-
-app.get('/api/config', (_req, res) => res.json({ adminRequired: Boolean(process.env.ADMIN_KEY) }));
 
 app.post('/api/admin/verify', requireAdmin, (_req, res) => res.json({ ok: true }));
 
