@@ -42,6 +42,7 @@ export const api = {
   addPhotos: (id, photos) => request(`/albums/${id}/photos`, { method: 'POST', body: photos }),
   updatePhoto: (id, body) => request(`/photos/${id}`, { method: 'PATCH', body }),
   deletePhoto: (id) => request(`/photos/${id}`, { method: 'DELETE' }),
+  recognizeLandmark: (body) => request('/ai/recognize-landmark', { method: 'POST', body }),
 
   /** Upload 1 file thẳng lên Cloudinary bằng chữ ký từ server. */
   async uploadToCloudinary(albumId, file, onProgress) {

@@ -5,6 +5,7 @@ import { connectDB } from './db.js';
 import { Album, Photo, normalizeTags, publicAlbum } from './models.js';
 import { signUpload, destroyImages } from './cloudinary.js';
 import { canAccess, signAlbumToken, HttpError } from './auth.js';
+import { recognizeLandmark } from './ai.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -62,6 +63,13 @@ const assertAccess = (req, album) => {
 };
 
 app.post('/api/admin/verify', requireAdmin, (_req, res) => res.json({ ok: true }));
+
+// ---------- AI Vision & Landmark Recognition ----------
+app.post('/api/ai/recognize-landmark', h(async (req, res) => {
+  const { photoUrl, locationHint, albumTitle } = req.body || {};
+  const result = await recognizeLandmark({ photoUrl, locationHint, albumTitle });
+  res.json(result);
+}));
 
 // ---------- Albums ----------
 app.get('/api/albums', h(async (req, res) => {
