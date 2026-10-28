@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
+import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 
 const MAX_MB = 10; // Giới hạn ảnh của Cloudinary free
@@ -218,6 +219,16 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   // Tìm tọa độ GPS từ tên địa danh (Forward Geocoding)
   const searchCoordsByPlaceName = async (queryText) => {
     const clean = queryText.trim().toLowerCase();
+    // 0. Kiểm tra từ điển 34 Tỉnh Thành mới & Địa danh du lịch (gồm Măng Đen, Hội An, Đà Lạt, Phú Quốc...)
+    const resolvedVn = resolveVietnamLocation(queryText);
+    if (resolvedVn?.lat && resolvedVn?.lon) {
+      return {
+        lat: Number(resolvedVn.lat.toFixed(6)),
+        lng: Number(resolvedVn.lon.toFixed(6)),
+        name: queryText.trim() || resolvedVn.placeName,
+      };
+    }
+
     // 1. Kiểm tra bộ đệm danh thắng Việt Nam trước (nhanh tức thì)
     const matched = KNOWN_VN_COORDS.find((item) => item.keywords.some((kw) => clean.includes(kw)));
     if (matched) {
@@ -414,6 +425,11 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
     setLocationName(val);
     const clean = val.trim().toLowerCase();
     if (clean.length >= 3) {
+      const resolvedVn = resolveVietnamLocation(val);
+      if (resolvedVn?.lat && resolvedVn?.lon) {
+        setCoords({ lat: Number(resolvedVn.lat.toFixed(6)), lng: Number(resolvedVn.lon.toFixed(6)) });
+        return;
+      }
       const matched = KNOWN_VN_COORDS.find((item) => item.keywords.some((kw) => clean.includes(kw)));
       if (matched) {
         setCoords({ lat: matched.lat, lng: matched.lng });
@@ -726,12 +742,23 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
 
           {(coords || locationName || mapInput) && (
             <div className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg flex items-center justify-between">
-              <div className="flex items-center gap-1.5 truncate">
-                <i className="fa-solid fa-circle-check text-emerald-600" />
-                <span className="truncate">
-                  Đã ghim: <b>{locationName || 'Vị trí GPS tự động'}</b>
-                  {coords && ` (${coords.lat}, ${coords.lng})`}
-                </span>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 truncate">
+                <div className="flex items-center gap-1.5 truncate">
+                  <i className="fa-solid fa-circle-check text-emerald-600" />
+                  <span className="truncate">
+                    Đã ghim: <b>{locationName || 'Vị trí GPS tự động'}</b>
+                    {coords && ` (${coords.lat}, ${coords.lng})`}
+                  </span>
+                </div>
+                {(() => {
+                  const r = resolveVietnamLocation(locationName || mapInput, coords?.lat, coords?.lng);
+                  if (!r) return null;
+                  return (
+                    <span className="px-2 py-0.5 rounded-full bg-white text-rose-700 border border-emerald-200 text-[10px] font-bold">
+                      {r.summaryLabel}
+                    </span>
+                  );
+                })()}
               </div>
               <button
                 type="button"

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import Header from './components/Header.jsx';
 import AlbumsList from './components/AlbumsList.jsx';
+import { GlobalYouTubePlayer } from './components/MusicPlayer.jsx';
 import { api, isUnlocked } from './api.js';
 
 // Lazy load các màn hình chi tiết & modal để tối ưu tốc độ tải trang đầu tiên
@@ -76,6 +77,9 @@ export default function App() {
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-400">
         <p>Kỷ Niệm Hành Trình • Thiết kế gửi trọn yêu thương cho hai đứa mình 💕 Việt Nam</p>
       </footer>
+
+      {/* Trình phát nhạc YouTube duy nhất (Singleton) cho toàn bộ ứng dụng */}
+      <GlobalYouTubePlayer />
 
       <Suspense fallback={null}>
         {showNew && (

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api } from '../api.js';
+import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 
 export default function NewAlbumModal({ onClose, onCreated }) {
@@ -8,6 +9,13 @@ export default function NewAlbumModal({ onClose, onCreated }) {
   const [form, setForm] = useState({ title: '', location: '', year: thisYear, desc: '', isLocked: false, pin: '' });
   const [saving, setSaving] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+
+  // Tự động nhận diện địa danh thuộc tỉnh mới sáp nhập nào (VD: Măng Đen -> Tỉnh Quảng Ngãi mới)
+  const resolvedLoc = useMemo(() => {
+    const query = `${form.location || ''} ${form.title || ''}`.trim();
+    if (!query) return null;
+    return resolveVietnamLocation(query);
+  }, [form.location, form.title]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -35,12 +43,12 @@ export default function NewAlbumModal({ onClose, onCreated }) {
         <form onSubmit={submit} className="space-y-3.5 text-xs">
           <div>
             <label className="block font-semibold text-slate-700 mb-1">Tên Album / Chuyến Đi *</label>
-            <input id="new-album-title" required value={form.title} onChange={set('title')} placeholder="Ví dụ: Nắm Tay Nhau Đi Sa Pa" className="input" />
+            <input id="new-album-title" required value={form.title} onChange={set('title')} placeholder="Ví dụ: Săn Mây Măng Đen Cùng Em" className="input" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Địa Danh Việt Nam *</label>
-              <input id="new-album-location" required value={form.location} onChange={set('location')} placeholder="Sa Pa, Lào Cai" className="input" />
+              <input id="new-album-location" required value={form.location} onChange={set('location')} placeholder="VD: Măng Đen, Huế, Đà Lạt..." className="input" />
             </div>
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Năm Đi *</label>
@@ -49,6 +57,26 @@ export default function NewAlbumModal({ onClose, onCreated }) {
               </select>
             </div>
           </div>
+
+          {/* Hiển thị ngay tỉnh mới sáp nhập khi người dùng nhập địa danh (VD: Măng Đen -> Quảng Ngãi mới) */}
+          {resolvedLoc && (
+            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 flex items-start gap-2 animate-fade-in">
+              <i className="fa-solid fa-map-pin text-rose-500 mt-0.5" />
+              <div>
+                <div className="font-bold">
+                  {resolvedLoc.placeName}{' '}
+                  {resolvedLoc.isMergedChange && (
+                    <span className="text-slate-600 font-normal">({resolvedLoc.oldProvince} cũ) ➔ </span>
+                  )}
+                  <span className="text-rose-700">{resolvedLoc.newProvinceFull} (mới)</span>
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  Hợp nhất: {resolvedLoc.mergedInfo} • Biểu tượng: {resolvedLoc.province?.landmarkTitle}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block font-semibold text-slate-700 mb-1">Cảm Xúc / Ghi Chú Đôi Mình</label>
             <textarea id="new-album-desc" rows={2} value={form.desc} onChange={set('desc')} placeholder="Những ngày tháng bên nhau thật đẹp..." className="input" />

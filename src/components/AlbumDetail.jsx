@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, thumb } from '../api.js';
+import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 import LazyImage from './LazyImage.jsx';
 
@@ -231,7 +232,18 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm text-slate-500 font-medium">
-                <span><i className="fa-solid fa-location-dot text-rose-500 mr-1.5" />{album.location}</span>
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  <span><i className="fa-solid fa-location-dot text-rose-500 mr-1.5" />{album.location}</span>
+                  {(() => {
+                    const r = resolveVietnamLocation(`${album.location || ''} ${album.title || ''}`);
+                    if (!r) return null;
+                    return (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-semibold">
+                        {r.isMergedChange ? `${r.oldProvince} cũ ➔ ${r.newProvinceFull} mới` : r.newProvinceFull}
+                      </span>
+                    );
+                  })()}
+                </span>
                 <span>•</span>
                 <span><i className="fa-regular fa-calendar text-slate-400 mr-1.5" />{album.year}</span>
                 <span>•</span>

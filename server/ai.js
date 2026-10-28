@@ -121,6 +121,16 @@ export const VIETNAM_LANDMARKS = [
     prompt: 'Ha Giang Ma Pi Leng mountain pass overlooking deep Tu San canyon and emerald turquoise Nho Que River, blooming pink buckwheat flowers in foreground, majestic karst mountain peaks, clean modern gouache and watercolor landscape illustration, teal cyan and warm earth tones, full bleed edge-to-edge painting, no frame, no border, no text, no letters, no watermark',
   },
   {
+    id: 'mangden',
+    keywords: ['măng đen', 'mang den', 'kon plông', 'kon tum', 'kontum', 'pa sỹ', 'đăk ke', 'nhà rông', 'quảng ngãi'],
+    landmark: 'Rừng Thông Măng Đen & Hồ Đăk Ke (Tỉnh Quảng Ngãi mới)',
+    city: 'Măng Đen',
+    subtitle: 'Măng Đen Calling ...',
+    tagline: 'ĐẠI NGÀN THÔNG REO • SƯƠNG SỚM CAO NGUYÊN',
+    details: 'Rừng thông nguyên sinh mờ sương Măng Đen, hồ Đăk Ke phẳng lặng, hoa anh đào hồng phấn và nhà gỗ ấm áp',
+    prompt: 'scenic Mang Den highland pine forest in morning mist, tranquil Dak Ke lake reflecting blooming pink cherry blossom trees and cozy wooden cabin, gentle waterfall in background, clean modern gouache and watercolor highland landscape illustration, realistic proportions, emerald pine green and warm sunrise tones, full bleed edge-to-edge painting, no frame, no border, no text, no letters, no watermark',
+  },
+  {
     id: 'vungtau',
     keywords: ['vũng tàu', 'côn đảo', 'bà rịa', 'hồ tràm', 'lý sơn', 'phú quý', 'quy nhơn', 'eo gió', 'kỳ co', 'mũi né', 'phan thiết'],
     landmark: 'Hải Đăng Biển Đảo & Cung Đường Ven Biển',

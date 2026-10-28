@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api, coverUrl, isUnlocked } from '../api.js';
+import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 import LazyImage from './LazyImage.jsx';
 
@@ -28,15 +30,16 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
 
   const { stats } = data;
 
-  // Tổng hợp danh sách các địa danh hai đứa đã đặt chân đến để hiển thị ngay ngoài màn hình chính
+  // Tổng hợp danh sách các địa danh hai đứa đã đặt chân đến kèm nhận diện tỉnh mới sau sáp nhập
   const visitedPlaces = useMemo(() => {
     const map = new Map();
     (data.albums || []).forEach((a) => {
       const loc = (a.location || '').trim();
       if (!loc) return;
       const key = loc.toLowerCase();
+      const resolved = resolveVietnamLocation(`${loc} ${a.title || ''}`);
       if (!map.has(key)) {
-        map.set(key, { name: loc, count: 1, latestAlbum: a });
+        map.set(key, { name: loc, count: 1, latestAlbum: a, resolved });
       } else {
         map.get(key).count += 1;
       }
@@ -108,9 +111,16 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                     ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                     : 'bg-rose-50/80 text-rose-700 border-rose-200 hover:bg-rose-100'
                 }`}
-                title={`Lọc các chuyến đi tại ${p.name}`}
+                title={p.resolved?.summaryLabel || `Lọc các chuyến đi tại ${p.name}`}
               >
-                <span>📍 {p.name}</span>
+                <span>
+                  📍 {p.name}
+                  {p.resolved?.isMergedChange && (
+                    <span className="text-[10px] font-normal opacity-85 ml-1">
+                      ({p.resolved.newProvince} mới)
+                    </span>
+                  )}
+                </span>
                 <span className="text-[10px] opacity-80">({p.count})</span>
               </button>
             ))
@@ -214,7 +224,16 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot text-rose-500" />{a.location || 'Việt Nam'}</span>
+                    <span className="flex items-center gap-1 truncate">
+                      <i className="fa-solid fa-location-dot text-rose-500" />
+                      {(() => {
+                        const r = resolveVietnamLocation(`${a.location || ''} ${a.title || ''}`);
+                        if (r?.isMergedChange) {
+                          return `${a.location} (${r.newProvince} mới)`;
+                        }
+                        return a.location || 'Việt Nam';
+                      })()}
+                    </span>
                     <span className="flex-shrink-0"><i className="fa-regular fa-images mr-1" />{a.photoCount} ảnh</span>
                   </div>
                   {a.desc && <p className="text-xs text-slate-500 italic line-clamp-2 pt-0.5">{a.desc}</p>}
@@ -225,15 +244,17 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
         </div>
       )}
 
-      <Suspense fallback={null}>
-        {showMap && (
-          <VietnamMapModal
-            albums={data.albums}
-            onOpenAlbum={onOpen}
-            onClose={() => setShowMap(false)}
-          />
+      {showMap &&
+        createPortal(
+          <Suspense fallback={null}>
+            <VietnamMapModal
+              albums={data.albums}
+              onOpenAlbum={onOpen}
+              onClose={() => setShowMap(false)}
+            />
+          </Suspense>,
+          document.body
         )}
-      </Suspense>
     </section>
   );
 }
