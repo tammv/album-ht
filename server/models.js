@@ -28,6 +28,8 @@ const photoSchema = new Schema(
     mapUrl: { type: String, default: '', maxlength: 500 }, // Đường link Google Maps
     lat: Number, // Vĩ độ
     lng: Number, // Kinh độ
+    takenAt: { type: String, default: '', maxlength: 60 }, // Ngày chụp từ EXIF
+    order: { type: Number, default: 0, index: true }, // Thứ tự sắp xếp trang ảnh
     width: Number,
     height: Number,
   },

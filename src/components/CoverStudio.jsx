@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, optimized } from '../api.js';
+import { api, optimized, thumb } from '../api.js';
 import { useToast } from './Toast.jsx';
 
 // Bảng màu bìa sách Photobook chuẩn thị trường (Mixbook, Artifact Uprising, Monocle)
@@ -1224,7 +1224,7 @@ export default function CoverStudio({ album, photos = [], onClose, onSaved }) {
                         }`}
                         title="Nhấp để chọn ảnh này"
                       >
-                        <img src={p.url} alt="" className="w-full h-full object-cover" />
+                        <img src={thumb(p.url, 160)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       </button>
                     ))}
                   </div>

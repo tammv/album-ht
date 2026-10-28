@@ -1,38 +1,41 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { coverUrl, optimized } from '../api.js';
 import { sfx } from '../sfx.js';
+import MusicPlayer from './MusicPlayer.jsx';
 
 const TAPES = ['washi-tape-strip', 'washi-tape-rose', 'washi-tape-teal'];
 
 /**
- * Hiển thị một trang sách với nhiều kiểu bố cục:
- * - 'cover': Bìa sách phong cách du lịch (ưu tiên hiển thị poster bìa dọc nếu đã tạo)
- * - 'single_bleed': 1 ảnh tràn viền sang trọng (như Hình 2 & 3)
+ * Hiển thị nội dung một trang sách:
+ * - 'cover': Bìa sách dọc 3:4 (hiển thị trọn vẹn 100% không cắt xén)
+ * - 'bleed': 1 ảnh tràn viền sang trọng
  * - 'polaroid': 1 ảnh scrapbook dán băng keo washi
- * - 'collage_3': 3 ảnh nghệ thuật (1 ảnh to + 2 ảnh nhỏ như Hình 5)
- * - 'duo': 2 ảnh xếp dọc / ngang cân đối
+ * - 'collage_3': 3 ảnh nghệ thuật (1 ảnh lớn + 2 ảnh nhỏ)
  * - 'end': Trang kết thúc hành trình
  */
 function PageContent({ page, side, layoutStyle }) {
-  if (!page) return <div className="h-full w-full" />;
+  if (!page) return <div className="h-full w-full bg-[#FAF6EE]" />;
 
-  // Trang Bìa Cuốn Sách
+  // Trang Bìa Cuốn Sách (Bìa Đóng Đầu Tiên)
   if (page.type === 'cover') {
     if (page.album?.coverPhoto) {
       return (
         <div className="h-full w-full bg-[#FAF6EE] relative overflow-hidden flex items-center justify-center">
+          {/* Hiệu ứng gáy sách 3D bên trái */}
+          <div className="absolute left-0 top-0 bottom-0 w-5 bg-gradient-to-r from-black/25 via-white/15 to-transparent z-10 pointer-events-none" />
           <img
-            src={coverUrl(page.album.coverPhoto, 1200)}
+            src={coverUrl(page.album.coverPhoto, 1400)}
             alt={page.album.title}
-            className="w-full h-full object-cover select-none"
+            className="w-full h-full object-contain select-none"
             draggable={false}
           />
         </div>
       );
     }
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center text-center p-4 sm:p-8 bg-[#FAF6EE] relative overflow-hidden">
-        <div className="absolute inset-0 border-8 sm:border-[12px] border-amber-900/10 pointer-events-none" />
+      <div className="h-full w-full flex flex-col items-center justify-center text-center p-6 sm:p-10 bg-[#FAF6EE] relative overflow-hidden">
+        <div className="absolute left-0 top-0 bottom-0 w-5 bg-gradient-to-r from-black/25 via-white/15 to-transparent z-10 pointer-events-none" />
+        <div className="absolute inset-3 border-4 sm:border-8 border-amber-900/10 pointer-events-none rounded-lg" />
         <span className="text-[10px] sm:text-xs uppercase tracking-[0.3em] text-rose-500 font-semibold mb-2">
           Kỷ Niệm Hành Trình • Việt Nam
         </span>
@@ -50,7 +53,7 @@ function PageContent({ page, side, layoutStyle }) {
         )}
         <div className="mt-6 flex items-center gap-2 text-rose-400">
           <i className="fa-solid fa-heart" />
-          <span className="text-xs font-hand text-slate-400">Yêu thương trao trọn</span>
+          <span className="text-xs font-hand text-slate-400">Nhấp để mở sách ảnh kỷ niệm</span>
           <i className="fa-solid fa-heart" />
         </div>
       </div>
@@ -60,7 +63,8 @@ function PageContent({ page, side, layoutStyle }) {
   // Trang Kết Thúc
   if (page.type === 'end') {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center text-center p-6 bg-[#FAF6EE]">
+      <div className="h-full w-full flex flex-col items-center justify-center text-center p-6 bg-[#FAF6EE] relative">
+        <div className="absolute inset-4 border border-amber-900/10 rounded-xl pointer-events-none" />
         <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center text-2xl mb-3 shadow-inner">
           <i className="fa-solid fa-infinity" />
         </div>
@@ -75,13 +79,13 @@ function PageContent({ page, side, layoutStyle }) {
   const { photos = [], pageIndex = 1 } = page;
   const currentLayout = page.layout || layoutStyle || 'auto';
 
-  // ===== BỐ CỤC 1: FULL BLEED (1 HÌNH TRÀN VIỀN NHƯ HÌNH 2 & 3) =====
+  // ===== BỐ CỤC 1: FULL BLEED (1 HÌNH TRÀN VIỀN) =====
   if (currentLayout === 'bleed' || (currentLayout === 'auto' && page.layout === 'bleed')) {
     const p = photos[0];
     if (!p) return null;
     return (
-      <div className="h-full w-full relative flex flex-col justify-between p-2 sm:p-4 bg-white overflow-hidden">
-        <div className="relative flex-grow w-full h-full rounded-lg overflow-hidden bg-slate-100 shadow-md">
+      <div className="h-full w-full relative flex flex-col justify-between p-2 sm:p-4 bg-[#FAF6EE] overflow-hidden">
+        <div className="relative flex-grow w-full h-full rounded-xl overflow-hidden bg-slate-100 shadow-md">
           <img
             src={optimized(p.url, 1200)}
             alt={p.caption || ''}
@@ -94,12 +98,12 @@ function PageContent({ page, side, layoutStyle }) {
             </div>
           )}
         </div>
-        <span className="text-[10px] text-slate-400 font-serif italic text-center mt-1">— {pageIndex} —</span>
+        <span className="text-[10px] text-slate-400 font-serif italic text-center mt-1">— Trang {pageIndex} —</span>
       </div>
     );
   }
 
-  // ===== BỐ CỤC 2: COLLAGE 3 HÌNH (1 HÌNH LỚN + 2 HÌNH NHỎ NHƯ HÌNH 5) =====
+  // ===== BỐ CỤC 2: COLLAGE 3 HÌNH (1 HÌNH LỚN + 2 HÌNH NHỎ) =====
   if (currentLayout === 'collage_3' && photos.length >= 2) {
     const p1 = photos[0];
     const p2 = photos[1];
@@ -107,7 +111,7 @@ function PageContent({ page, side, layoutStyle }) {
     return (
       <div className="h-full w-full flex flex-col justify-between p-3 sm:p-5 bg-[#FAF6EE] relative">
         <div className="grid grid-cols-12 gap-2 sm:gap-3 flex-grow">
-          {/* Ảnh lớn bên trái/trên */}
+          {/* Ảnh lớn bên trái */}
           <div className="col-span-7 h-full flex flex-col">
             <div className="relative flex-grow rounded-xl overflow-hidden bg-white p-1.5 shadow-md">
               <img src={optimized(p1.url, 800)} alt="" className="w-full h-full object-cover rounded-lg" draggable={false} />
@@ -124,7 +128,7 @@ function PageContent({ page, side, layoutStyle }) {
             </div>
           </div>
         </div>
-        <span className="text-[10px] text-slate-400 font-serif italic text-center mt-1">— {pageIndex} —</span>
+        <span className="text-[10px] text-slate-400 font-serif italic text-center mt-1">— Trang {pageIndex} —</span>
       </div>
     );
   }
@@ -157,18 +161,19 @@ function PageContent({ page, side, layoutStyle }) {
           )}
         </div>
       </div>
-      <span className="text-[10px] text-slate-400 font-serif italic">— {pageIndex} —</span>
+      <span className="text-[10px] text-slate-400 font-serif italic">— Trang {pageIndex} —</span>
     </div>
   );
 }
 
 export default function Flipbook({ album, photos = [], onClose }) {
-  // Chế độ xem: 'auto_responsive' (tự động 1 trang mobile / 2 trang desktop) | 'double' (2 trang) | 'single' (1 trang)
+  // Chế độ xem: 'double' (Mở đầu là 1 trang Bìa, lật sang là 2 trang ảnh) | 'single' (1 trang cho mobile)
   const [viewMode, setViewMode] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'single' : 'double'));
-  // Phong cách bố cục: 'auto' (xen kẽ) | 'bleed' (1 ảnh tràn viền như hình 2) | 'collage_3' (3 ảnh như hình 5) | 'polaroid' (scrapbook)
+  // Phong cách bố cục: 'auto' (xen kẽ) | 'bleed' (1 ảnh tràn viền) | 'collage_3' (3 ảnh ghép) | 'polaroid' (scrapbook)
   const [layoutStyle, setLayoutStyle] = useState('auto');
-  const [pageIndex, setPageIndex] = useState(0); // Chỉ mục trang đang xem
-  const [flipAnim, setFlipAnim] = useState(null); // Animation lật trang
+  // Chỉ mục bước xem hiện tại (step = 0 luôn là Bìa Đầu Tiên độc lập)
+  const [stepIndex, setStepIndex] = useState(0);
+  const [flipAnim, setFlipAnim] = useState(null);
   const busy = useRef(false);
 
   // Tự động thích ứng khi xoay màn hình hoặc resize
@@ -180,50 +185,50 @@ export default function Flipbook({ album, photos = [], onClose }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Xây dựng danh sách các trang Photobook
-  // Trong chế độ 'collage_3', gom mỗi trang 3 ảnh; chế độ 'bleed' / 'polaroid', mỗi trang 1 ảnh
-  const pages = useRef([]);
-  useEffect(() => {
-    const pList = [{ type: 'cover', album }];
+  // Xây dựng danh sách các lượt xem (steps):
+  // - Ở chế độ 'double':
+  //   + Step 0: Chỉ hiển thị duy nhất cái Bìa Sách dọc (mode: 'cover')
+  //   + Step 1, 2, ...: Hiển thị cặp 2 trang ảnh song song (mode: 'spread', left + right)
+  // - Ở chế độ 'single':
+  //   + Mỗi step là 1 trang đơn lần lượt từ Bìa -> các trang ảnh -> Kết thúc
+  const steps = useMemo(() => {
+    const coverPage = { type: 'cover', album };
+    const innerPages = [];
 
     if (layoutStyle === 'collage_3') {
-      // Nhóm 3 ảnh thành 1 trang
       for (let i = 0; i < photos.length; i += 3) {
-        const group = photos.slice(i, i + 3);
-        pList.push({
+        innerPages.push({
           type: 'photo',
-          photos: group,
+          photos: photos.slice(i, i + 3),
           layout: 'collage_3',
-          pageIndex: pList.length,
+          pageIndex: innerPages.length + 1,
         });
       }
     } else if (layoutStyle === 'bleed') {
-      // 1 ảnh tràn viền mỗi trang
-      photos.forEach((photo) => {
-        pList.push({
+      photos.forEach((photo, idx) => {
+        innerPages.push({
           type: 'photo',
           photos: [photo],
           layout: 'bleed',
-          pageIndex: pList.length,
+          pageIndex: idx + 1,
         });
       });
     } else if (layoutStyle === 'polaroid') {
-      // 1 ảnh polaroid mỗi trang
-      photos.forEach((photo) => {
-        pList.push({
+      photos.forEach((photo, idx) => {
+        innerPages.push({
           type: 'photo',
           photos: [photo],
           layout: 'polaroid',
-          pageIndex: pList.length,
+          pageIndex: idx + 1,
         });
       });
     } else {
-      // Chế độ 'auto' xen kẽ nghệ thuật: trang lẻ bleed, trang chẵn polaroid, thi thoảng collage 3
+      // Chế độ 'auto' xen kẽ nghệ thuật
       let photoIdx = 0;
       let counter = 1;
       while (photoIdx < photos.length) {
-        if (counter % 3 === 0 && photos.length - photoIdx >= 2) {
-          pList.push({
+        if (counter % 3 === 0 && photos.length - photoIdx >= 3) {
+          innerPages.push({
             type: 'photo',
             photos: photos.slice(photoIdx, photoIdx + 3),
             layout: 'collage_3',
@@ -231,7 +236,7 @@ export default function Flipbook({ album, photos = [], onClose }) {
           });
           photoIdx += 3;
         } else if (counter % 2 === 1) {
-          pList.push({
+          innerPages.push({
             type: 'photo',
             photos: [photos[photoIdx]],
             layout: 'bleed',
@@ -239,7 +244,7 @@ export default function Flipbook({ album, photos = [], onClose }) {
           });
           photoIdx += 1;
         } else {
-          pList.push({
+          innerPages.push({
             type: 'photo',
             photos: [photos[photoIdx]],
             layout: 'polaroid',
@@ -250,53 +255,92 @@ export default function Flipbook({ album, photos = [], onClose }) {
       }
     }
 
-    pList.push({ type: 'end', count: photos.length });
+    innerPages.push({ type: 'end', count: photos.length });
 
-    // Đảm bảo số trang là số chẵn nếu ở chế độ 2 trang mở rộng
-    if (viewMode === 'double' && pList.length % 2 !== 0) {
-      pList.push(null);
+    if (viewMode === 'single') {
+      return [
+        { mode: 'single', page: coverPage },
+        ...innerPages.map((p) => ({ mode: 'single', page: p })),
+      ];
     }
 
-    pages.current = pList;
-    setPageIndex(0);
+    // Chế độ 'double':
+    // Bước 0: Chỉ duy nhất trang bìa đóng (Front Cover)
+    // Bước 1+: Mở sách ra 2 trang ảnh bên trái & bên phải
+    const spreadSteps = [{ mode: 'cover', page: coverPage }];
+    for (let i = 0; i < innerPages.length; i += 2) {
+      spreadSteps.push({
+        mode: 'spread',
+        left: innerPages[i],
+        right: innerPages[i + 1] || { type: 'end', count: photos.length },
+      });
+    }
+    return spreadSteps;
   }, [album, photos, layoutStyle, viewMode]);
 
-  const totalPages = pages.current.length;
-  const isSingle = viewMode === 'single';
-  const totalSpreads = isSingle ? totalPages : Math.ceil(totalPages / 2);
+  useEffect(() => {
+    setStepIndex(0);
+    setFlipAnim(null);
+    busy.current = false;
+  }, [steps]);
 
-  // Điều hướng trang
+  const totalSteps = steps.length;
+  const currentStep = steps[stepIndex] || steps[0];
+  const isCoverView = currentStep?.mode === 'cover';
+  const isSingleView = currentStep?.mode === 'single';
+
+  // Tải trước (Smart Preload) duy nhất bước kế tiếp (stepIndex + 1) để lật trang mượt mà mà không làm nặng mạng
+  useEffect(() => {
+    const nextStep = steps[stepIndex + 1];
+    if (!nextStep) return;
+    const pagesToPreload = [nextStep.page, nextStep.left, nextStep.right].filter(Boolean);
+    pagesToPreload.forEach((p) => {
+      (p.photos || []).forEach((ph) => {
+        if (ph?.url) {
+          const img = new Image();
+          img.decoding = 'async';
+          img.src = optimized(ph.url, 1000);
+        }
+      });
+    });
+  }, [stepIndex, steps]);
+
+  // Điều hướng lật trang
   const go = useCallback(
-    (step) => {
+    (dir) => {
       if (busy.current) return;
-      const delta = isSingle ? step : step * 2;
-      const target = pageIndex + delta;
-      if (target < 0 || target >= totalPages) return;
+      const target = stepIndex + dir;
+      if (target < 0 || target >= totalSteps) return;
 
       busy.current = true;
       sfx.pageFlip();
 
-      if (!isSingle) {
-        // Animation 3D cho chế độ 2 trang
-        if (step > 0) {
-          setFlipAnim({ dir: 1, front: pages.current[pageIndex + 1], back: pages.current[target], flipped: false });
+      const curr = steps[stepIndex];
+      const next = steps[target];
+
+      // Nếu cả trang hiện tại và trang đích đều là 2 trang mở rộng (spread), chạy hiệu ứng lật lá sách 3D
+      if (curr?.mode === 'spread' && next?.mode === 'spread') {
+        if (dir > 0) {
+          setFlipAnim({ dir: 1, front: curr.right, back: next.left, flipped: false });
           requestAnimationFrame(() => requestAnimationFrame(() => setFlipAnim((f) => f && { ...f, flipped: true })));
         } else {
-          setFlipAnim({ dir: -1, front: pages.current[target + 1], back: pages.current[pageIndex], flipped: true });
+          setFlipAnim({ dir: -1, front: next.right, back: curr.left, flipped: true });
           requestAnimationFrame(() => requestAnimationFrame(() => setFlipAnim((f) => f && { ...f, flipped: false })));
         }
         setTimeout(() => {
-          setPageIndex(target);
+          setStepIndex(target);
           setFlipAnim(null);
           busy.current = false;
-        }, 750);
+        }, 700);
       } else {
-        // Chế độ 1 trang đơn giản & nhanh trên mobile
-        setPageIndex(target);
-        busy.current = false;
+        // Chuyển mượt từ Bìa Đóng (1 trang) -> Mở Sách (2 trang ảnh) hoặc ngược lại
+        setStepIndex(target);
+        setTimeout(() => {
+          busy.current = false;
+        }, 250);
       }
     },
-    [pageIndex, totalPages, isSingle]
+    [stepIndex, totalSteps, steps]
   );
 
   useEffect(() => {
@@ -313,11 +357,87 @@ export default function Flipbook({ album, photos = [], onClose }) {
     };
   }, [go, onClose]);
 
-  // Xác định các trang hiển thị
-  const leftPage = isSingle ? null : pages.current[pageIndex];
-  const rightPage = isSingle ? pages.current[pageIndex] : pages.current[pageIndex + 1];
+  // Xuất toàn bộ cuốn sách thành bản in PDF Photobook chuẩn khổ dọc 3:4
+  const exportPhotobookPdf = () => {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const coverHtml = album.coverPhoto
+      ? `<div class="page cover-page"><img src="${coverUrl(album.coverPhoto, 1400)}" class="cover-img" /></div>`
+      : `<div class="page text-cover">
+          <div class="sub">KỶ NIỆM HÀNH TRÌNH • VIỆT NAM</div>
+          <h1>${album.title}</h1>
+          <div class="loc">${album.location || ''} • ${album.year || ''}</div>
+          ${album.desc ? `<p class="desc">"${album.desc}"</p>` : ''}
+        </div>`;
 
-  const currentDisplayNum = isSingle ? pageIndex + 1 : Math.floor(pageIndex / 2) + 1;
+    const pagesHtml = photos
+      .map(
+        (p, idx) => `
+        <div class="page photo-page">
+          <div class="photo-frame">
+            <img src="${optimized(p.url, 1400)}" />
+          </div>
+          <div class="meta">
+            ${p.caption ? `<div class="caption">${p.caption}</div>` : ''}
+            <div class="info">
+              ${p.locationName ? `📍 ${p.locationName} ` : ''}
+              ${p.takenAt ? `• 📅 ${p.takenAt}` : ''}
+            </div>
+            <div class="page-num">— Trang ${idx + 1} —</div>
+          </div>
+        </div>`
+      )
+      .join('');
+
+    w.document.write(`<!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Photobook - ${album.title}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600&family=Dancing+Script:wght@600&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+        <style>
+          @page { size: 150mm 200mm; margin: 0; }
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { background: #e7e5e4; font-family: 'Be Vietnam Pro', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .page {
+            width: 150mm; height: 200mm; margin: 10mm auto; background: #FAF6EE;
+            page-break-after: always; position: relative; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: space-between;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+          }
+          @media print {
+            body { background: none; }
+            .page { margin: 0; box-shadow: none; }
+            .no-print { display: none !important; }
+          }
+          .cover-page { padding: 0; }
+          .cover-img { width: 100%; height: 100%; object-fit: contain; background: #FAF6EE; }
+          .text-cover { align-items: center; justify-content: center; text-align: center; padding: 20mm; }
+          .text-cover .sub { font-size: 10pt; letter-spacing: 3px; color: #e11d48; font-weight: 600; margin-bottom: 12px; }
+          .text-cover h1 { font-family: 'Playfair Display', serif; font-size: 28pt; color: #0f172a; margin-bottom: 10px; }
+          .text-cover .loc { font-family: 'Dancing Script', cursive; font-size: 20pt; color: #be123c; }
+          .text-cover .desc { font-style: italic; font-size: 10pt; color: #475569; margin-top: 14px; }
+          .photo-page { padding: 12mm 12mm 10mm; }
+          .photo-frame { flex: 1; background: #fff; padding: 4mm; border-radius: 4mm; box-shadow: 0 4px 14px rgba(0,0,0,0.08); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+          .photo-frame img { max-width: 100%; max-height: 145mm; object-fit: contain; border-radius: 2mm; }
+          .meta { text-align: center; padding-top: 4mm; }
+          .caption { font-family: 'Dancing Script', cursive; font-size: 16pt; color: #be123c; }
+          .info { font-size: 8.5pt; color: #64748b; margin-top: 2px; }
+          .page-num { font-family: 'Playfair Display', serif; font-style: italic; font-size: 8pt; color: #94a3b8; margin-top: 4px; }
+          .toolbar { position: fixed; top: 16px; right: 16px; z-index: 50; display: flex; gap: 8px; }
+          .btn { background: #e11d48; color: #fff; border: none; padding: 10px 18px; border-radius: 999px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(225,29,72,0.3); }
+        </style>
+      </head>
+      <body>
+        <div class="toolbar no-print">
+          <button class="btn" onclick="window.print()">🖨️ In / Lưu thành File PDF (Khổ 3:4)</button>
+        </div>
+        ${coverHtml}
+        ${pagesHtml}
+      </body>
+      </html>`);
+    w.document.close();
+  };
 
   return (
     <div className="fixed inset-0 bg-stone-950/95 backdrop-blur-md z-50 flex flex-col justify-between p-2 sm:p-6 overflow-hidden select-none">
@@ -327,14 +447,19 @@ export default function Flipbook({ album, photos = [], onClose }) {
           <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
           <div>
             <h3 className="font-serif font-bold text-sm sm:text-base line-clamp-1">{album.title}</h3>
-            <p className="text-[11px] text-stone-300 hidden sm:block">Lật từng trang sách ảnh kỷ niệm</p>
+            <p className="text-[11px] text-stone-300 hidden sm:block">
+              {stepIndex === 0 ? 'Trang bìa cuốn sách — Nhấp để mở xem các trang ảnh' : 'Lật từng trang sách ảnh kỷ niệm'}
+            </p>
           </div>
         </div>
 
-        {/* Thanh công cụ chọn Bố Cục & Chế độ xem */}
-        <div className="flex items-center gap-1.5 sm:gap-2 text-xs">
+        {/* Thanh công cụ: Nhạc nền Cho Tôi Đi Theo + Bố Cục + Xuất PDF + Chế độ xem */}
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
+          {/* Trình phát nhạc bài hát "Cho Tôi Đi Theo - Ngọt" */}
+          <MusicPlayer autoStart={true} />
+
           {/* Chọn Bố Cục */}
-          <div className="hidden sm:flex items-center bg-stone-900 border border-stone-800 rounded-xl p-0.5">
+          <div className="hidden md:flex items-center bg-stone-900 border border-stone-800 rounded-xl p-0.5">
             <button
               onClick={() => setLayoutStyle('auto')}
               className={`px-2.5 py-1 rounded-lg transition ${layoutStyle === 'auto' ? 'bg-rose-600 text-white font-semibold' : 'text-stone-400 hover:text-white'}`}
@@ -345,18 +470,28 @@ export default function Flipbook({ album, photos = [], onClose }) {
             <button
               onClick={() => setLayoutStyle('bleed')}
               className={`px-2.5 py-1 rounded-lg transition ${layoutStyle === 'bleed' ? 'bg-rose-600 text-white font-semibold' : 'text-stone-400 hover:text-white'}`}
-              title="1 Hình Tràn Viền (như Hình 2)"
+              title="1 Hình Tràn Viền"
             >
               1 Hình Tràn
             </button>
             <button
               onClick={() => setLayoutStyle('collage_3')}
               className={`px-2.5 py-1 rounded-lg transition ${layoutStyle === 'collage_3' ? 'bg-rose-600 text-white font-semibold' : 'text-stone-400 hover:text-white'}`}
-              title="3 Hình Ghép (như Hình 5)"
+              title="3 Hình Ghép"
             >
               3 Hình Ghép
             </button>
           </div>
+
+          {/* Nút Xuất PDF Photobook */}
+          <button
+            onClick={exportPhotobookPdf}
+            className="px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-amber-600 text-amber-200 hover:text-white border border-stone-700 flex items-center gap-1 transition"
+            title="Xuất toàn bộ cuốn sách ra PDF để in ấn hoặc lưu trữ"
+          >
+            <i className="fa-solid fa-file-pdf" />
+            <span className="hidden sm:inline">Xuất PDF</span>
+          </button>
 
           {/* Nút chuyển 1 trang / 2 trang */}
           <button
@@ -364,13 +499,13 @@ export default function Flipbook({ album, photos = [], onClose }) {
             className="px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 flex items-center gap-1"
             title="Đổi chế độ 1 trang / 2 trang"
           >
-            <i className={`fa-solid ${isSingle ? 'fa-book-open' : 'fa-file'}`} />
-            <span className="hidden md:inline">{isSingle ? 'Xem 2 Trang' : 'Xem 1 Trang'}</span>
+            <i className={`fa-solid ${viewMode === 'single' ? 'fa-book-open' : 'fa-file'}`} />
+            <span className="hidden lg:inline">{viewMode === 'single' ? 'Xem 2 Trang' : 'Xem 1 Trang'}</span>
           </button>
 
           {/* Bộ đếm trang */}
           <span className="text-xs font-medium text-amber-300 bg-stone-900 px-3 py-1.5 rounded-xl border border-stone-800">
-            {currentDisplayNum} / {totalSpreads}
+            {stepIndex === 0 ? 'Bìa sách' : `${stepIndex} / ${totalSteps - 1}`}
           </span>
 
           {/* Đóng */}
@@ -380,12 +515,12 @@ export default function Flipbook({ album, photos = [], onClose }) {
         </div>
       </div>
 
-      {/* Sân Khấu Cuốn Sách (Stage) - Responsive Tuyệt Đối */}
+      {/* Sân Khấu Cuốn Sách (Stage) */}
       <div className="flex-grow flex items-center justify-center py-2 sm:py-4 relative w-full overflow-hidden">
         {/* Nút Lật Trước / Sau */}
         <button
           onClick={() => go(-1)}
-          disabled={pageIndex === 0}
+          disabled={stepIndex === 0}
           className="absolute left-2 sm:left-6 z-40 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/40 hover:bg-rose-600 disabled:opacity-20 text-white backdrop-blur-md shadow-lg transition active:scale-95 flex items-center justify-center"
         >
           <i className="fa-solid fa-chevron-left" />
@@ -393,67 +528,70 @@ export default function Flipbook({ album, photos = [], onClose }) {
 
         <button
           onClick={() => go(1)}
-          disabled={pageIndex >= totalPages - (isSingle ? 1 : 2)}
+          disabled={stepIndex >= totalSteps - 1}
           className="absolute right-2 sm:right-6 z-40 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/40 hover:bg-rose-600 disabled:opacity-20 text-white backdrop-blur-md shadow-lg transition active:scale-95 flex items-center justify-center"
         >
           <i className="fa-solid fa-chevron-right" />
         </button>
 
-        {/* Khung Cuốn Sách */}
-        <div
-          className={`relative rounded-2xl bg-amber-950 border-4 border-amber-900/80 shadow-2xl transition-all duration-300 overflow-hidden ${
-            isSingle
-              ? 'w-full max-w-sm sm:max-w-md h-[480px] sm:h-[580px] flex'
-              : 'w-full max-w-5xl h-[400px] sm:h-[520px] md:h-[600px] flex book-container'
-          }`}
-        >
-          {!isSingle && (
-            <>
-              {/* Gáy sách ở giữa */}
-              <div className="absolute left-1/2 top-0 bottom-0 w-8 -translate-x-1/2 z-20 pointer-events-none book-spine bg-gradient-to-r from-transparent via-black/35 to-transparent" />
-              {/* Ruy-băng đánh dấu sách */}
-              <div className="absolute left-1/2 top-0 -translate-x-1/2 w-4 h-28 bg-rose-600 shadow-md z-40 pointer-events-none rounded-b-sm border-x border-rose-700" />
-            </>
-          )}
+        {/* TRƯỜNG HỢP 1: BÌA ĐẦU TIÊN ĐỘC LẬP (CUỐN SÁCH ĐANG ĐÓNG - CHỈ HIỂN THỊ BÌA DỌC 3:4) */}
+        {(isCoverView || isSingleView) ? (
+          <div
+            onClick={() => go(1)}
+            title="Nhấp để lật sang trang tiếp theo"
+            className="relative h-[460px] sm:h-[560px] md:h-[620px] aspect-[3/4] max-w-[90vw] rounded-r-2xl rounded-l-md bg-[#FAF6EE] border-4 border-l-[10px] border-amber-900/80 shadow-[0_25px_60px_rgba(0,0,0,0.65)] cursor-pointer transition-all duration-500 hover:scale-[1.01] overflow-hidden flex animate-fade-in"
+          >
+            <div className="w-full h-full overflow-hidden">
+              <PageContent page={currentStep.page} side="right" layoutStyle={layoutStyle} />
+            </div>
+          </div>
+        ) : (
+          /* TRƯỜNG HỢP 2: SÁCH ĐÃ MỞ RA 2 TRANG ẢNH SONG SONG (TRANG TRÁI + TRANG PHẢI) */
+          <div className="relative w-full max-w-5xl h-[400px] sm:h-[520px] md:h-[600px] rounded-2xl bg-amber-950 border-4 border-amber-900/80 shadow-2xl transition-all duration-500 overflow-hidden flex book-container animate-fade-in">
+            {/* Gáy sách ở giữa */}
+            <div className="absolute left-1/2 top-0 bottom-0 w-8 -translate-x-1/2 z-20 pointer-events-none book-spine bg-gradient-to-r from-transparent via-black/35 to-transparent" />
+            {/* Ruy-băng đánh dấu sách */}
+            <div className="absolute left-1/2 top-0 -translate-x-1/2 w-4 h-28 bg-rose-600 shadow-md z-40 pointer-events-none rounded-b-sm border-x border-rose-700" />
 
-          {/* Trang Trái (nếu 2 trang) */}
-          {!isSingle && (
+            {/* Trang Ảnh Trái */}
             <div
               className="w-1/2 h-full border-r border-amber-200/50 cursor-pointer overflow-hidden rounded-l-xl"
               onClick={() => go(-1)}
             >
-              <PageContent page={leftPage} side="left" layoutStyle={layoutStyle} />
+              <PageContent page={currentStep.left} side="left" layoutStyle={layoutStyle} />
             </div>
-          )}
 
-          {/* Trang Phải (hoặc Trang Đơn duy nhất khi mobile) */}
-          <div
-            className={`${isSingle ? 'w-full' : 'w-1/2'} h-full cursor-pointer overflow-hidden ${isSingle ? 'rounded-xl' : 'rounded-r-xl'}`}
-            onClick={() => go(1)}
-          >
-            <PageContent page={rightPage} side="right" layoutStyle={layoutStyle} />
+            {/* Trang Ảnh Phải */}
+            <div
+              className="w-1/2 h-full cursor-pointer overflow-hidden rounded-r-xl"
+              onClick={() => go(1)}
+            >
+              <PageContent page={currentStep.right} side="right" layoutStyle={layoutStyle} />
+            </div>
+
+            {/* Hiệu ứng lật trang 3D giữa các cặp trang ảnh */}
+            {flipAnim && (
+              <div className={`book-page-leaf absolute right-0 top-0 w-1/2 h-full z-30 pointer-events-none ${flipAnim.flipped ? 'flipped' : ''}`}>
+                <div className="page-front absolute inset-0 shadow-2xl border-l border-amber-200 rounded-r-xl overflow-hidden">
+                  <PageContent page={flipAnim.front} side="right" layoutStyle={layoutStyle} />
+                </div>
+                <div className="page-back absolute inset-0 shadow-2xl border-r border-amber-200 rounded-l-xl overflow-hidden">
+                  <PageContent page={flipAnim.back} side="left" layoutStyle={layoutStyle} />
+                </div>
+              </div>
+            )}
           </div>
-
-          {/* Hiệu ứng lật trang 3D (khi ở chế độ 2 trang) */}
-          {!isSingle && flipAnim && (
-            <div className={`book-page-leaf absolute right-0 top-0 w-1/2 h-full z-30 pointer-events-none ${flipAnim.flipped ? 'flipped' : ''}`}>
-              <div className="page-front absolute inset-0 shadow-2xl border-l border-amber-200 rounded-r-xl overflow-hidden">
-                <PageContent page={flipAnim.front} side="right" layoutStyle={layoutStyle} />
-              </div>
-              <div className="page-back absolute inset-0 shadow-2xl border-r border-amber-200 rounded-l-xl overflow-hidden">
-                <PageContent page={flipAnim.back} side="left" layoutStyle={layoutStyle} />
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Dưới cùng: Hướng dẫn vuốt / phím */}
       <div className="flex items-center justify-center text-stone-400 text-xs py-1 flex-shrink-0">
         <span className="flex items-center gap-1.5">
-          <i className="fa-solid fa-hand-pointer text-rose-400" /> Nhấp mép trang hoặc dùng phím
+          <i className="fa-solid fa-hand-pointer text-rose-400" />
+          {stepIndex === 0 ? 'Nhấp vào bìa sách hoặc bấm phím' : 'Nhấp mép trang hoặc dùng phím'}
           <kbd className="px-1.5 py-0.5 bg-stone-800 rounded border border-stone-700 text-[10px]">←</kbd>
-          <kbd className="px-1.5 py-0.5 bg-stone-800 rounded border border-stone-700 text-[10px]">→</kbd> để lật
+          <kbd className="px-1.5 py-0.5 bg-stone-800 rounded border border-stone-700 text-[10px]">→</kbd>
+          {stepIndex === 0 ? 'để mở ra 2 trang ảnh' : 'để lật trang'}
         </span>
       </div>
     </div>

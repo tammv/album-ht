@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, optimized } from '../api.js';
 import { useToast } from './Toast.jsx';
+import MusicPlayer from './MusicPlayer.jsx';
 
 /** Lightbox full màn hình + chế độ trình chiếu tự động hoàn toàn Responsive. */
 export default function Lightbox({ photos = [], start = 0, autoPlay = false, title, onClose, onDelete, onFrame, onUpdated }) {
@@ -97,6 +98,7 @@ export default function Lightbox({ photos = [], start = 0, autoPlay = false, tit
 
         {/* Action Buttons Responsive */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          <MusicPlayer autoStart={autoPlay} />
           <button
             title="Sửa ghi chú & tag"
             onClick={startEdit}

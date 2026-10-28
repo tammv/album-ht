@@ -40,6 +40,7 @@ export const api = {
   unlock: (id, pin) => request(`/albums/${id}/unlock`, { method: 'POST', body: { pin } }),
   listPhotos: (id, params = {}) => request(`/albums/${id}/photos?${new URLSearchParams(params)}`),
   addPhotos: (id, photos) => request(`/albums/${id}/photos`, { method: 'POST', body: photos }),
+  reorderPhotos: (id, photoIds) => request(`/albums/${id}/photos/reorder`, { method: 'PUT', body: { photoIds } }),
   updatePhoto: (id, body) => request(`/photos/${id}`, { method: 'PATCH', body }),
   deletePhoto: (id) => request(`/photos/${id}`, { method: 'DELETE' }),
   recognizeLandmark: (body) => request('/ai/recognize-landmark', { method: 'POST', body }),

@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { api, coverUrl, isUnlocked } from '../api.js';
 import { useToast } from './Toast.jsx';
+import LazyImage from './LazyImage.jsx';
+
+const VietnamMapModal = lazy(() => import('./VietnamMapModal.jsx'));
 
 const TAPES = ['washi-tape-strip', 'washi-tape-rose', 'washi-tape-teal'];
 
@@ -10,6 +13,7 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState('all');
   const [q, setQ] = useState('');
+  const [showMap, setShowMap] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -74,15 +78,25 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
             </button>
           ))}
         </div>
-        <div className="relative min-w-[240px]">
-          <i className="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
-          <input
-            id="search-input"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Tìm địa danh, tên chuyến đi..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition"
-          />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setShowMap(true)}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:opacity-95 text-white text-xs font-semibold shadow-sm flex items-center justify-center gap-2 transition active:scale-95 whitespace-nowrap"
+          >
+            <i className="fa-solid fa-map-location-dot" />
+            <span>Bản Đồ Hành Trình Chữ S</span>
+          </button>
+          <div className="relative min-w-[220px]">
+            <i className="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
+            <input
+              id="search-input"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Tìm địa danh, tên chuyến đi..."
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition"
+            />
+          </div>
         </div>
       </div>
 
@@ -123,10 +137,11 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                       <span className="text-xs text-rose-200">Góc kỷ niệm bí mật</span>
                     </div>
                   ) : a.coverPhoto ? (
-                    <img
+                    <LazyImage
                       src={coverUrl(a.coverPhoto, 900)}
                       alt={a.title}
-                      loading="lazy"
+                      priority={i < 3}
+                      wrapperClassName="w-full h-full"
                       className="w-full h-full object-cover object-center group-hover:scale-[1.02] transition duration-700"
                     />
                   ) : (
@@ -154,6 +169,16 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
           })}
         </div>
       )}
+
+      <Suspense fallback={null}>
+        {showMap && (
+          <VietnamMapModal
+            albums={data.albums}
+            onOpenAlbum={onOpen}
+            onClose={() => setShowMap(false)}
+          />
+        )}
+      </Suspense>
     </section>
   );
 }

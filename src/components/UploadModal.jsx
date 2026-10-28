@@ -4,11 +4,160 @@ import { useToast } from './Toast.jsx';
 
 const MAX_MB = 10; // Giới hạn ảnh của Cloudinary free
 
+/**
+ * Bộ giải mã EXIF thuần JavaScript (nhẹ, không cần thư viện ngoài):
+ * Tự động đọc Ngày chụp (DateTimeOriginal) & Tọa độ GPS (Vĩ độ / Kinh độ) từ file ảnh JPEG
+ */
+async function extractExifFromFile(file) {
+  const fallbackDate = file.lastModified
+    ? new Date(file.lastModified).toLocaleDateString('vi-VN')
+    : '';
+  try {
+    const buffer = await file.slice(0, 131072).arrayBuffer();
+    const view = new DataView(buffer);
+    if (view.byteLength < 12 || view.getUint16(0) !== 0xffd8) {
+      return { takenAt: fallbackDate, gps: null };
+    }
+
+    let offset = 2;
+    while (offset + 4 < view.byteLength) {
+      const marker = view.getUint16(offset);
+      offset += 2;
+      if (marker === 0xffe1) {
+        const len = view.getUint16(offset);
+        // Kiểm tra header "Exif\0\0"
+        if (
+          offset + 8 < view.byteLength &&
+          view.getUint32(offset + 2) === 0x45786966 &&
+          view.getUint16(offset + 6) === 0x0000
+        ) {
+          return parseTiffExif(view, offset + 8, fallbackDate);
+        }
+        offset += len;
+      } else if ((marker & 0xff00) === 0xff00) {
+        offset += view.getUint16(offset);
+      } else {
+        break;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { takenAt: fallbackDate, gps: null };
+}
+
+function parseTiffExif(view, tiffStart, fallbackDate) {
+  const little = view.getUint16(tiffStart) === 0x4949;
+  const getU16 = (o) => view.getUint16(o, little);
+  const getU32 = (o) => view.getUint32(o, little);
+
+  const readString = (o, count) => {
+    let s = '';
+    for (let i = 0; i < count - 1 && o + i < view.byteLength; i++) {
+      const ch = view.getUint8(o + i);
+      if (ch === 0) break;
+      s += String.fromCharCode(ch);
+    }
+    return s.trim();
+  };
+
+  const readRational = (o) => {
+    if (o + 8 > view.byteLength) return 0;
+    const num = getU32(o);
+    const den = getU32(o + 4);
+    return den ? num / den : 0;
+  };
+
+  const formatExifDate = (raw) => {
+    // "2026:05:14 16:30:00" -> "14/05/2026"
+    const m = raw?.match(/^(\d{4}):(\d{2}):(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : fallbackDate;
+  };
+
+  let dateStr = '';
+  let exifIfdOffset = 0;
+  let gpsIfdOffset = 0;
+
+  const firstIfd = tiffStart + getU32(tiffStart + 4);
+  if (firstIfd + 2 > view.byteLength) return { takenAt: fallbackDate, gps: null };
+
+  const entries = getU16(firstIfd);
+  for (let i = 0; i < entries; i++) {
+    const entry = firstIfd + 2 + i * 12;
+    if (entry + 12 > view.byteLength) break;
+    const tag = getU16(entry);
+    const count = getU32(entry + 4);
+    const valOffset = tiffStart + getU32(entry + 8);
+
+    if (tag === 0x0132 && count <= 32 && valOffset + count <= view.byteLength) {
+      dateStr = readString(valOffset, count);
+    } else if (tag === 0x8769) {
+      exifIfdOffset = valOffset;
+    } else if (tag === 0x8825) {
+      gpsIfdOffset = valOffset;
+    }
+  }
+
+  // Đọc DateTimeOriginal từ Exif SubIFD
+  if (exifIfdOffset && exifIfdOffset + 2 < view.byteLength) {
+    const subEntries = getU16(exifIfdOffset);
+    for (let i = 0; i < subEntries; i++) {
+      const entry = exifIfdOffset + 2 + i * 12;
+      if (entry + 12 > view.byteLength) break;
+      const tag = getU16(entry);
+      const count = getU32(entry + 4);
+      const valOffset = tiffStart + getU32(entry + 8);
+      if ((tag === 0x9003 || tag === 0x9004) && count <= 32 && valOffset + count <= view.byteLength) {
+        dateStr = readString(valOffset, count);
+        break;
+      }
+    }
+  }
+
+  // Đọc tọa độ GPS từ GPS IFD
+  let gps = null;
+  if (gpsIfdOffset && gpsIfdOffset + 2 < view.byteLength) {
+    const gpsEntries = getU16(gpsIfdOffset);
+    let latRef = 'N';
+    let lngRef = 'E';
+    let latVals = null;
+    let lngVals = null;
+
+    for (let i = 0; i < gpsEntries; i++) {
+      const entry = gpsIfdOffset + 2 + i * 12;
+      if (entry + 12 > view.byteLength) break;
+      const tag = getU16(entry);
+      const valOffset = tiffStart + getU32(entry + 8);
+
+      if (tag === 1) {
+        latRef = String.fromCharCode(view.getUint8(entry + 8));
+      } else if (tag === 2 && valOffset + 24 <= view.byteLength) {
+        latVals = [readRational(valOffset), readRational(valOffset + 8), readRational(valOffset + 16)];
+      } else if (tag === 3) {
+        lngRef = String.fromCharCode(view.getUint8(entry + 8));
+      } else if (tag === 4 && valOffset + 24 <= view.byteLength) {
+        lngVals = [readRational(valOffset), readRational(valOffset + 8), readRational(valOffset + 16)];
+      }
+    }
+
+    if (latVals && lngVals && (latVals[0] || latVals[1]) && (lngVals[0] || lngVals[1])) {
+      let lat = latVals[0] + latVals[1] / 60 + latVals[2] / 3600;
+      let lng = lngVals[0] + lngVals[1] / 60 + lngVals[2] / 3600;
+      if (latRef === 'S') lat = -lat;
+      if (lngRef === 'W') lng = -lng;
+      gps = { lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)) };
+    }
+  }
+
+  return { takenAt: formatExifDate(dateStr), gps };
+}
+
 export default function UploadModal({ albumId, onClose, onUploaded }) {
   const toast = useToast();
-  const [files, setFiles] = useState([]); // {file, preview, progress, status}
+  const [files, setFiles] = useState([]); // {file, preview, progress, status, takenAt, gps}
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
+  const [takenAt, setTakenAt] = useState('');
   const [locationName, setLocationName] = useState('');
   const [mapInput, setMapInput] = useState(''); // Link google maps hoặc tên địa điểm
   const [coords, setCoords] = useState(null); // { lat, lng }
@@ -51,28 +200,30 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   // Phân tích link Google Maps hoặc chuỗi người dùng dán vào
   const handleMapInputChange = (val) => {
     setMapInput(val);
-    // Nếu dán link chứa toạ độ @12.245,109.195
-    const coordMatch = val.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || val.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/) || val.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+    const coordMatch =
+      val.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+      val.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+      val.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
     if (coordMatch) {
       const lat = Number(parseFloat(coordMatch[1]).toFixed(6));
       const lng = Number(parseFloat(coordMatch[2]).toFixed(6));
       setCoords({ lat, lng });
     }
-    // Nếu người dùng nhập tên địa điểm trực tiếp
     if (!val.startsWith('http') && !locationName) {
       setLocationName(val);
     }
   };
 
   // Tạo mapUrl đầy đủ
-  const getComputedMapUrl = () => {
+  const getComputedMapUrl = (itemGps) => {
+    const activeCoords = itemGps || coords;
     if (mapInput.startsWith('http')) return mapInput;
-    if (coords) return `https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`;
+    if (activeCoords) return `https://www.google.com/maps/search/?api=1&query=${activeCoords.lat},${activeCoords.lng}`;
     if (locationName) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(locationName)}`;
     return '';
   };
 
-  const addFiles = (list) => {
+  const addFiles = async (list) => {
     const arr = [...list].filter((f) => {
       if (!f.type.startsWith('image/')) return false;
       if (f.size > MAX_MB * 1024 * 1024) {
@@ -81,7 +232,36 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
       }
       return true;
     });
-    setFiles((cur) => [...cur, ...arr.map((file) => ({ file, preview: URL.createObjectURL(file), progress: 0, status: 'idle' }))]);
+
+    const parsedItems = await Promise.all(
+      arr.map(async (file) => {
+        const meta = await extractExifFromFile(file);
+        return {
+          file,
+          preview: URL.createObjectURL(file),
+          progress: 0,
+          status: 'idle',
+          takenAt: meta.takenAt,
+          gps: meta.gps,
+        };
+      })
+    );
+
+    // Tự động điền Ngày chụp & GPS nếu tìm thấy trong EXIF của bức ảnh
+    const firstWithDate = parsedItems.find((x) => x.takenAt);
+    const firstWithGps = parsedItems.find((x) => x.gps);
+
+    if (firstWithDate && !takenAt) {
+      setTakenAt(firstWithDate.takenAt);
+    }
+    if (firstWithGps && !coords) {
+      setCoords(firstWithGps.gps);
+      toast(`📸 Đã tự động đọc Ngày chụp (${firstWithDate?.takenAt || ''}) & Tọa độ GPS từ ảnh EXIF!`);
+    } else if (firstWithDate && !takenAt) {
+      toast(`📸 Đã tự động đọc ngày chụp từ ảnh: ${firstWithDate.takenAt}`);
+    }
+
+    setFiles((cur) => [...cur, ...parsedItems]);
   };
 
   const patch = (i, v) => setFiles((cur) => cur.map((f, j) => (j === i ? { ...f, ...v } : f)));
@@ -89,7 +269,6 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   const upload = async () => {
     setBusy(true);
     const saved = [];
-    const computedMapUrl = getComputedMapUrl();
     const queue = files.map((f, i) => ({ ...f, i })).filter((f) => f.status !== 'done');
 
     const worker = async () => {
@@ -98,14 +277,16 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
         try {
           patch(f.i, { status: 'uploading' });
           const r = await api.uploadToCloudinary(albumId, f.file, (p) => patch(f.i, { progress: p }));
+          const activeGps = f.gps || coords;
           saved.push({
             ...r,
             caption,
             tags,
+            takenAt: takenAt || f.takenAt || '',
             locationName,
-            mapUrl: computedMapUrl,
-            lat: coords?.lat,
-            lng: coords?.lng,
+            mapUrl: getComputedMapUrl(activeGps),
+            lat: activeGps?.lat,
+            lng: activeGps?.lng,
           });
           patch(f.i, { status: 'done', progress: 1 });
         } catch (e) {
@@ -138,6 +319,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           url,
           caption,
           tags,
+          takenAt,
           locationName,
           mapUrl: getComputedMapUrl(),
           lat: coords?.lat,
@@ -184,7 +366,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           <i className="fa-solid fa-images text-3xl text-rose-400 mb-2" />
           <p className="text-xs font-semibold text-slate-700">Bấm để chọn ảnh hoặc kéo thả ảnh vào đây</p>
           <p className="text-[10px] text-slate-400 mt-1">
-            JPG, PNG, WEBP, HEIC • tối đa {MAX_MB}MB/ảnh • upload thẳng lên Cloudinary
+            Tự động đọc Ngày chụp & GPS (EXIF) • tối đa {MAX_MB}MB/ảnh
           </p>
           <input
             id="file-input"
@@ -205,6 +387,14 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             {files.map((f, i) => (
               <div key={f.preview} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100">
                 <img src={f.preview} alt="" className="w-full h-full object-cover" />
+                {f.gps && (
+                  <span
+                    className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-emerald-600/90 text-white text-[8px] font-bold"
+                    title={`GPS EXIF: ${f.gps.lat}, ${f.gps.lng}`}
+                  >
+                    GPS
+                  </span>
+                )}
                 {f.status === 'uploading' && (
                   <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/30">
                     <div className="h-full bg-rose-500 transition-all" style={{ width: `${f.progress * 100}%` }} />
@@ -233,25 +423,35 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           </div>
         )}
 
-        {/* Lời thương & Tag */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        {/* Lời thương, Tag & Ngày chụp EXIF */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
           <div>
             <label className="block font-semibold text-slate-700 mb-1">Ghi chú lời thương</label>
             <input
               id="photo-caption-input"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
-              placeholder="Khoảnh khắc ngọt ngào bên em..."
+              placeholder="Khoảnh khắc ngọt ngào..."
               className="input text-xs"
             />
           </div>
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Tag (cách nhau dấu phẩy)</label>
+            <label className="block font-semibold text-slate-700 mb-1">Tag (dấu phẩy)</label>
             <input
               id="photo-tags-input"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
-              placeholder="hoàng hôn, biển, ăn uống"
+              placeholder="hoàng hôn, biển..."
+              className="input text-xs"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Ngày chụp (EXIF)</label>
+            <input
+              id="photo-date-input"
+              value={takenAt}
+              onChange={(e) => setTakenAt(e.target.value)}
+              placeholder="VD: 14/05/2026"
               className="input text-xs"
             />
           </div>
@@ -262,7 +462,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           <div className="flex items-center justify-between">
             <label className="font-semibold text-slate-700 flex items-center gap-1.5">
               <i className="fa-solid fa-location-dot text-rose-500" />
-              Vị trí từ Google Maps
+              Vị trí từ Ảnh EXIF / Google Maps
             </label>
             <div className="flex items-center gap-1.5">
               <button
@@ -294,7 +494,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
                 id="photo-location-name"
                 value={locationName}
                 onChange={(e) => setLocationName(e.target.value)}
-                placeholder="VD: Bãi Sao, Tháp Trầm Hương..."
+                placeholder="VD: Đại Nội Huế, Bãi Sao..."
                 className="input text-xs"
               />
             </div>
@@ -315,7 +515,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
               <div className="flex items-center gap-1.5 truncate">
                 <i className="fa-solid fa-circle-check text-emerald-600" />
                 <span className="truncate">
-                  Đã ghim: <b>{locationName || 'Vị trí đã chọn'}</b>
+                  Đã ghim: <b>{locationName || 'Vị trí GPS tự động'}</b>
                   {coords && ` (${coords.lat}, ${coords.lng})`}
                 </span>
               </div>

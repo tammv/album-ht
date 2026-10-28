@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import Header from './components/Header.jsx';
 import AlbumsList from './components/AlbumsList.jsx';
-import AlbumDetail from './components/AlbumDetail.jsx';
-import NewAlbumModal from './components/NewAlbumModal.jsx';
-import PinModal from './components/PinModal.jsx';
-import AdminModal from './components/AdminModal.jsx';
 import { api, isUnlocked } from './api.js';
+
+// Lazy load các màn hình chi tiết & modal để tối ưu tốc độ tải trang đầu tiên
+const AlbumDetail = lazy(() => import('./components/AlbumDetail.jsx'));
+const NewAlbumModal = lazy(() => import('./components/NewAlbumModal.jsx'));
+const PinModal = lazy(() => import('./components/PinModal.jsx'));
+const AdminModal = lazy(() => import('./components/AdminModal.jsx'));
 
 /** Router tối giản dựa trên hash: #/ và #/album/:id */
 const parseHash = () => {
@@ -45,13 +47,15 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
         {albumId ? (
-          <AlbumDetail
-            key={albumId}
-            albumId={albumId}
-            onBack={goHome}
-            onLocked={(a) => setPinAlbum(a)}
-            onDeleted={() => { setRefreshKey((k) => k + 1); goHome(); }}
-          />
+          <Suspense fallback={<div className="h-64 rounded-3xl bg-slate-200/70 animate-pulse" />}>
+            <AlbumDetail
+              key={albumId}
+              albumId={albumId}
+              onBack={goHome}
+              onLocked={(a) => setPinAlbum(a)}
+              onDeleted={() => { setRefreshKey((k) => k + 1); goHome(); }}
+            />
+          </Suspense>
         ) : (
           <AlbumsList refreshKey={refreshKey} onOpen={openAlbum} onNew={() => setShowNew(true)} />
         )}
@@ -61,25 +65,27 @@ export default function App() {
         <p>Kỷ Niệm Hành Trình • Thiết kế gửi trọn yêu thương cho hai đứa mình 💕 Việt Nam</p>
       </footer>
 
-      {showNew && (
-        <NewAlbumModal
-          onClose={() => setShowNew(false)}
-          onCreated={(a) => { setShowNew(false); setRefreshKey((k) => k + 1); location.hash = `#/album/${a._id}`; }}
-        />
-      )}
-      {pinAlbum && (
-        <PinModal
-          album={pinAlbum}
-          onClose={() => { setPinAlbum(null); if (albumId && !isUnlocked(albumId)) goHome(); }}
-          onUnlocked={() => {
-            const id = pinAlbum._id;
-            setPinAlbum(null);
-            if (albumId === id) setRefreshKey((k) => k + 1);
-            location.hash = `#/album/${id}`;
-          }}
-        />
-      )}
-      {showAdmin && <AdminModal onClose={() => setShowAdmin(false)} />}
+      <Suspense fallback={null}>
+        {showNew && (
+          <NewAlbumModal
+            onClose={() => setShowNew(false)}
+            onCreated={(a) => { setShowNew(false); setRefreshKey((k) => k + 1); location.hash = `#/album/${a._id}`; }}
+          />
+        )}
+        {pinAlbum && (
+          <PinModal
+            album={pinAlbum}
+            onClose={() => { setPinAlbum(null); if (albumId && !isUnlocked(albumId)) goHome(); }}
+            onUnlocked={() => {
+              const id = pinAlbum._id;
+              setPinAlbum(null);
+              if (albumId === id) setRefreshKey((k) => k + 1);
+              location.hash = `#/album/${id}`;
+            }}
+          />
+        )}
+        {showAdmin && <AdminModal onClose={() => setShowAdmin(false)} />}
+      </Suspense>
     </div>
   );
 }

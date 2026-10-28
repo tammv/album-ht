@@ -166,10 +166,28 @@ app.get('/api/albums/:id/photos', h(async (req, res) => {
   if (req.query.tag) filter.tags = String(req.query.tag).toLowerCase();
   if (req.query.q) filter.caption = new RegExp(String(req.query.q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   const [photos, tags] = await Promise.all([
-    Photo.find(filter).sort({ createdAt: 1 }).lean(),
+    Photo.find(filter).sort({ order: 1, createdAt: 1 }).lean(),
     Photo.distinct('tags', { album: album._id }),
   ]);
   res.json({ photos, tags: tags.sort() });
+}));
+
+/** Sắp xếp lại thứ tự ảnh bằng kéo-thả (Drag & Drop). */
+app.put('/api/albums/:id/photos/reorder', requireAdmin, h(async (req, res) => {
+  const album = await findAlbum(req.params.id);
+  assertAccess(req, album);
+  const { photoIds } = req.body || {};
+  if (!Array.isArray(photoIds)) throw new HttpError(400, 'Danh sách thứ tự ảnh không hợp lệ');
+  const ops = photoIds
+    .filter((id) => mongoose.isValidObjectId(id))
+    .map((id, idx) => ({
+      updateOne: {
+        filter: { _id: id, album: album._id },
+        update: { $set: { order: idx } },
+      },
+    }));
+  if (ops.length) await Photo.bulkWrite(ops);
+  res.json({ ok: true });
 }));
 
 /** Lấy chữ ký để client upload thẳng lên Cloudinary. */
@@ -184,9 +202,10 @@ app.post('/api/albums/:id/photos', requireAdmin, h(async (req, res) => {
   const album = await findAlbum(req.params.id);
   assertAccess(req, album);
   const items = Array.isArray(req.body) ? req.body : [req.body];
+  const baseOrder = album.photoCount || 0;
   const docs = items
     .filter((p) => /^https?:\/\//.test(p.url || ''))
-    .map((p) => ({
+    .map((p, idx) => ({
       album: album._id,
       url: p.url,
       publicId: p.publicId || '',
@@ -196,6 +215,8 @@ app.post('/api/albums/:id/photos', requireAdmin, h(async (req, res) => {
       mapUrl: p.mapUrl ? String(p.mapUrl).trim() : '',
       lat: typeof p.lat === 'number' ? p.lat : undefined,
       lng: typeof p.lng === 'number' ? p.lng : undefined,
+      takenAt: p.takenAt ? String(p.takenAt).trim() : '',
+      order: baseOrder + idx,
       width: p.width,
       height: p.height,
     }));
@@ -215,6 +236,7 @@ app.patch('/api/photos/:id', requireAdmin, h(async (req, res) => {
   if ('tags' in req.body) photo.tags = normalizeTags(req.body.tags);
   if ('locationName' in req.body) photo.locationName = String(req.body.locationName).trim();
   if ('mapUrl' in req.body) photo.mapUrl = String(req.body.mapUrl).trim();
+  if ('takenAt' in req.body) photo.takenAt = String(req.body.takenAt).trim();
   if ('lat' in req.body) photo.lat = typeof req.body.lat === 'number' ? req.body.lat : undefined;
   if ('lng' in req.body) photo.lng = typeof req.body.lng === 'number' ? req.body.lng : undefined;
   await photo.save();
