@@ -64,11 +64,83 @@ const assertAccess = (req, album) => {
 
 app.post('/api/admin/verify', requireAdmin, (_req, res) => res.json({ ok: true }));
 
-// ---------- AI Vision & Landmark Recognition ----------
+// ---------- AI Vision, Geo & Landmark Recognition ----------
 app.post('/api/ai/recognize-landmark', h(async (req, res) => {
   const { photoUrl, locationHint, albumTitle } = req.body || {};
   const result = await recognizeLandmark({ photoUrl, locationHint, albumTitle });
   res.json(result);
+}));
+
+// Giải mã link rút gọn Google Maps (maps.app.goo.gl), tìm tọa độ theo tên địa điểm hoặc định vị IP dự phòng
+app.post('/api/geo/resolve', h(async (req, res) => {
+  const { query = '' } = req.body || {};
+  const text = String(query).trim();
+
+  // 1. Nếu là link Google Maps rút gọn (maps.app.goo.gl / goo.gl/maps)
+  if (/^https?:\/\//i.test(text)) {
+    try {
+      const r = await fetch(text, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const finalUrl = r.url || text;
+      const m =
+        finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+        finalUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ||
+        finalUrl.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+      const placeMatch = finalUrl.match(/\/place\/([^/@]+)/);
+      const decodedPlace = placeMatch ? decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')) : '';
+      if (m) {
+        return res.json({
+          lat: Number(parseFloat(m[1]).toFixed(6)),
+          lng: Number(parseFloat(m[2]).toFixed(6)),
+          name: decodedPlace || 'Vị trí Google Maps',
+          mapUrl: finalUrl,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 2. Nếu có tên địa điểm cần tìm tọa độ
+  if (text && !/^https?:\/\//i.test(text)) {
+    try {
+      const nom = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text + ', Việt Nam')}&limit=1&accept-language=vi`,
+        { headers: { 'User-Agent': 'AlbumHanhTrinh/1.0' } }
+      );
+      if (nom.ok) {
+        const arr = await nom.json();
+        if (arr?.[0]?.lat && arr?.[0]?.lon) {
+          return res.json({
+            lat: Number(parseFloat(arr[0].lat).toFixed(6)),
+            lng: Number(parseFloat(arr[0].lon).toFixed(6)),
+            name: arr[0].display_name?.split(',').slice(0, 2).join(', ') || text,
+          });
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 3. Định vị qua IP mạng (khi thiết bị không bật GPS hoặc chặn quyền trình duyệt)
+  try {
+    const ipRes = await fetch('https://get.geojs.io/v1/ip/geo.json');
+    if (ipRes.ok) {
+      const d = await ipRes.json();
+      if (d.latitude && d.longitude) {
+        return res.json({
+          lat: Number(parseFloat(d.latitude).toFixed(6)),
+          lng: Number(parseFloat(d.longitude).toFixed(6)),
+          name: [d.city, d.country].filter(Boolean).join(', ') || 'Việt Nam',
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // Mặc định trung tâm Việt Nam (Cố đô Huế) nếu mọi dịch vụ mạng ngoại vi đều ngoại tuyến
+  res.json({ lat: 16.4637, lng: 107.5909, name: 'Huế, Việt Nam' });
 }));
 
 // Sinh tranh AI cho Bìa Photobook (Proxy nội bộ sạch 100%, vẽ cảnh quan tràn viền không khung phụ & không chữ rác)

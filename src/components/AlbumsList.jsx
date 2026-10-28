@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { api, coverUrl, isUnlocked } from '../api.js';
 import { useToast } from './Toast.jsx';
 import LazyImage from './LazyImage.jsx';
@@ -28,6 +28,22 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
 
   const { stats } = data;
 
+  // Tổng hợp danh sách các địa danh hai đứa đã đặt chân đến để hiển thị ngay ngoài màn hình chính
+  const visitedPlaces = useMemo(() => {
+    const map = new Map();
+    (data.albums || []).forEach((a) => {
+      const loc = (a.location || '').trim();
+      if (!loc) return;
+      const key = loc.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { name: loc, count: 1, latestAlbum: a });
+      } else {
+        map.get(key).count += 1;
+      }
+    });
+    return Array.from(map.values());
+  }, [data.albums]);
+
   return (
     <section className="space-y-8">
       {/* Hero */}
@@ -46,6 +62,16 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
           <p className="text-rose-100/90 text-sm sm:text-base font-light">
             Lưu giữ kỷ niệm những chuyến đi hằng năm, lồng khung đậm chất địa danh Việt Nam, khóa bí mật góc nhỏ riêng tư và lật từng trang sách ảnh kỷ niệm 3D.
           </p>
+          <div className="pt-2 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowMap(true)}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 text-xs sm:text-sm font-bold shadow-lg shadow-amber-950/20 flex items-center gap-2 transition active:scale-95"
+            >
+              <i className="fa-solid fa-map-location-dot text-rose-700" />
+              <span>Xem Các Điểm Đã Đến (Bản Đồ Chữ S)</span>
+            </button>
+          </div>
         </div>
         <div className="mt-8 pt-6 border-t border-rose-700/50 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center relative z-10">
           {[
@@ -62,6 +88,43 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
         </div>
       </div>
 
+      {/* Thanh hiển thị nhanh Các Điểm Đã Đến ngay ngoài màn hình chính */}
+      <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mr-1">
+            <i className="fa-solid fa-location-dot text-rose-500" />
+            Các điểm đã đến ({visitedPlaces.length}):
+          </span>
+          {visitedPlaces.length === 0 ? (
+            <span className="text-xs text-slate-400 italic">Chưa có địa danh nào được ghi nhận</span>
+          ) : (
+            visitedPlaces.map((p) => (
+              <button
+                key={p.name}
+                type="button"
+                onClick={() => setQ((prev) => (prev === p.name ? '' : p.name))}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex items-center gap-1.5 ${q === p.name
+                    ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                    : 'bg-rose-50/80 text-rose-700 border-rose-200 hover:bg-rose-100'
+                  }`}
+                title={`Lọc các chuyến đi tại ${p.name}`}
+              >
+                <span>📍 {p.name}</span>
+                <span className="text-[10px] opacity-80">({p.count})</span>
+              </button>
+            ))
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowMap(true)}
+          className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:opacity-95 text-white text-xs font-semibold shadow-sm flex items-center justify-center gap-2 transition active:scale-95 whitespace-nowrap flex-shrink-0"
+        >
+          <i className="fa-solid fa-map-location-dot" />
+          <span>Mở Bản Đồ Các Điểm Đã Đến</span>
+        </button>
+      </div>
+
       {/* Toolbar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
@@ -70,24 +133,15 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
               key={y}
               id={`year-filter-${y}`}
               onClick={() => setYear(String(y))}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
-                String(y) === year ? 'bg-rose-600 text-white shadow-md shadow-rose-200' : 'bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600'
-              }`}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${String(y) === year ? 'bg-rose-600 text-white shadow-md shadow-rose-200' : 'bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600'
+                }`}
             >
               {y === 'all' ? 'Tất cả' : `Năm ${y}`}
             </button>
           ))}
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowMap(true)}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:opacity-95 text-white text-xs font-semibold shadow-sm flex items-center justify-center gap-2 transition active:scale-95 whitespace-nowrap"
-          >
-            <i className="fa-solid fa-map-location-dot" />
-            <span>Bản Đồ Hành Trình Chữ S</span>
-          </button>
-          <div className="relative min-w-[220px]">
+          <div className="relative min-w-[240px]">
             <i className="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
             <input
               id="search-input"

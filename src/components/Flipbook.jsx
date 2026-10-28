@@ -318,8 +318,16 @@ export default function Flipbook({ album, photos = [], onClose }) {
       const curr = steps[stepIndex];
       const next = steps[target];
 
-      // Nếu cả trang hiện tại và trang đích đều là 2 trang mở rộng (spread), chạy hiệu ứng lật lá sách 3D
-      if (curr?.mode === 'spread' && next?.mode === 'spread') {
+      // Nếu mở từ Trang Bìa Độc Lập (step 0) -> Mở ra 2 trang (Hình đầu + Trang 2)
+      if (curr?.mode === 'cover' && next?.mode === 'spread' && dir > 0) {
+        setStepIndex(target);
+        setFlipAnim({ dir: 1, front: curr.page, back: next.left, flipped: false, openingCover: true });
+        requestAnimationFrame(() => requestAnimationFrame(() => setFlipAnim((f) => f && { ...f, flipped: true })));
+        setTimeout(() => {
+          setFlipAnim(null);
+          busy.current = false;
+        }, 700);
+      } else if (curr?.mode === 'spread' && next?.mode === 'spread') {
         if (dir > 0) {
           setFlipAnim({ dir: 1, front: curr.right, back: next.left, flipped: false });
           requestAnimationFrame(() => requestAnimationFrame(() => setFlipAnim((f) => f && { ...f, flipped: true })));
@@ -333,7 +341,6 @@ export default function Flipbook({ album, photos = [], onClose }) {
           busy.current = false;
         }, 700);
       } else {
-        // Chuyển mượt từ Bìa Đóng (1 trang) -> Mở Sách (2 trang ảnh) hoặc ngược lại
         setStepIndex(target);
         setTimeout(() => {
           busy.current = false;
@@ -440,7 +447,7 @@ export default function Flipbook({ album, photos = [], onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-stone-950/95 backdrop-blur-md z-50 flex flex-col justify-between p-2 sm:p-6 overflow-hidden select-none">
+    <div className="fixed inset-0 w-screen h-screen bg-stone-950/95 backdrop-blur-md z-[100] flex flex-col justify-between p-2 sm:p-6 overflow-y-auto overflow-x-hidden select-none">
       {/* Top Bar Responsive */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-white max-w-6xl mx-auto w-full py-1.5 z-20 flex-shrink-0">
         <div className="flex items-center gap-2.5">
@@ -538,12 +545,19 @@ export default function Flipbook({ album, photos = [], onClose }) {
         {(isCoverView || isSingleView) ? (
           <div
             onClick={() => go(1)}
-            title="Nhấp để lật sang trang tiếp theo"
-            className="relative h-[460px] sm:h-[560px] md:h-[620px] aspect-[3/4] max-w-[90vw] rounded-r-2xl rounded-l-md bg-[#FAF6EE] border-4 border-l-[10px] border-amber-900/80 shadow-[0_25px_60px_rgba(0,0,0,0.65)] cursor-pointer transition-all duration-500 hover:scale-[1.01] overflow-hidden flex animate-fade-in"
+            title="Nhấp để mở sách ra Hình đầu & Trang 2"
+            className="group relative h-[460px] sm:h-[560px] md:h-[620px] aspect-[3/4] max-w-[90vw] rounded-r-2xl rounded-l-md bg-[#FAF6EE] border-4 border-l-[10px] border-amber-900/80 shadow-[0_25px_60px_rgba(0,0,0,0.65)] cursor-pointer transition-all duration-500 hover:scale-[1.01] overflow-hidden flex animate-fade-in"
           >
             <div className="w-full h-full overflow-hidden">
               <PageContent page={currentStep.page} side="right" layoutStyle={layoutStyle} />
             </div>
+            {stepIndex === 0 && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 rounded-full bg-stone-900/85 text-amber-200 border border-amber-400/40 text-xs font-semibold shadow-lg flex items-center gap-2 group-hover:bg-rose-600 group-hover:text-white transition whitespace-nowrap">
+                <i className="fa-solid fa-book-open" />
+                <span>Mở bìa xem Hình đầu & Trang 2</span>
+                <i className="fa-solid fa-arrow-right text-[10px]" />
+              </div>
+            )}
           </div>
         ) : (
           /* TRƯỜNG HỢP 2: SÁCH ĐÃ MỞ RA 2 TRANG ẢNH SONG SONG (TRANG TRÁI + TRANG PHẢI) */

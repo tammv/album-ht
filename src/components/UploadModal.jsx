@@ -4,16 +4,38 @@ import { useToast } from './Toast.jsx';
 
 const MAX_MB = 10; // Giới hạn ảnh của Cloudinary free
 
+// Tọa độ các địa danh phổ biến tại Việt Nam (Dùng làm bộ đệm tức thì nếu mạng chậm)
+const KNOWN_VN_COORDS = [
+  { keywords: ['đại nội', 'ngọ môn', 'kinh thành huế'], name: 'Đại Nội Huế', lat: 16.4698, lng: 107.5784 },
+  { keywords: ['thiên mụ', 'chùa thiên mụ'], name: 'Chùa Thiên Mụ, Huế', lat: 16.4533, lng: 107.5451 },
+  { keywords: ['sông hương', 'cầu trường tiền', 'tràng tiền', 'huế', 'hue'], name: 'TP. Huế, Thừa Thiên Huế', lat: 16.4637, lng: 107.5909 },
+  { keywords: ['nha trang', 'tháp trầm hương', 'ponagar'], name: 'TP. Nha Trang, Khánh Hòa', lat: 12.2388, lng: 109.1967 },
+  { keywords: ['hội an', 'chùa cầu', 'sông hoài'], name: 'Phố Cổ Hội An, Quảng Nam', lat: 15.8801, lng: 108.338 },
+  { keywords: ['cầu vàng', 'bà nà'], name: 'Cầu Vàng Bà Nà Hills, Đà Nẵng', lat: 15.9951, lng: 107.9962 },
+  { keywords: ['đà nẵng', 'cầu rồng', 'mỹ khê', 'sơn trà'], name: 'TP. Đà Nẵng', lat: 16.0544, lng: 108.2022 },
+  { keywords: ['đà lạt', 'xuân hương', 'lâm viên', 'langbiang'], name: 'TP. Đà Lạt, Lâm Đồng', lat: 11.9404, lng: 108.4583 },
+  { keywords: ['sa pa', 'sapa', 'fansipan', 'bản cát cát'], name: 'Sa Pa, Lào Cai', lat: 22.3364, lng: 103.8438 },
+  { keywords: ['hạ long', 'quảng ninh', 'tuần châu'], name: 'Vịnh Hạ Long, Quảng Ninh', lat: 20.9101, lng: 107.1839 },
+  { keywords: ['hà nội', 'hồ gươm', 'hoàn kiếm', 'tháp rùa', 'hồ tây'], name: 'Hồ Hoàn Kiếm, Hà Nội', lat: 21.0285, lng: 105.8542 },
+  { keywords: ['phú quốc', 'bãi sao', 'hòn thơm', 'dương đông'], name: 'Đảo Ngọc Phú Quốc, Kiên Giang', lat: 10.2899, lng: 103.984 },
+  { keywords: ['ninh bình', 'tràng an', 'tam cốc', 'hang múa', 'bái đính'], name: 'Danh Thắng Tràng An, Ninh Bình', lat: 20.2506, lng: 105.9745 },
+  { keywords: ['hà giang', 'mã pí lèng', 'nho quế', 'đồng văn', 'lũng cú'], name: 'Đèo Mã Pí Lèng, Hà Giang', lat: 23.2469, lng: 105.4083 },
+  { keywords: ['sài gòn', 'hồ chí minh', 'bến thành', 'nhà thờ đức bà'], name: 'Quận 1, TP. Hồ Chí Minh', lat: 10.7769, lng: 106.7009 },
+  { keywords: ['vũng tàu', 'hồ tràm', 'côn đảo'], name: 'TP. Vũng Tàu', lat: 10.346, lng: 107.0843 },
+  { keywords: ['quy nhơn', 'kỳ co', 'eo gió', 'phú yên'], name: 'TP. Quy Nhơn, Bình Định', lat: 13.782, lng: 109.2197 },
+  { keywords: ['mũi né', 'phan thiết', 'phú quý'], name: 'Mũi Né, Phan Thiết', lat: 10.9333, lng: 108.2833 },
+];
+
 /**
- * Bộ giải mã EXIF thuần JavaScript (nhẹ, không cần thư viện ngoài):
- * Tự động đọc Ngày chụp (DateTimeOriginal) & Tọa độ GPS (Vĩ độ / Kinh độ) từ file ảnh JPEG
+ * Bộ giải mã EXIF thuần JavaScript:
+ * Tự động đọc Ngày chụp (DateTimeOriginal) & Tọa độ GPS từ file ảnh JPEG
  */
 async function extractExifFromFile(file) {
   const fallbackDate = file.lastModified
     ? new Date(file.lastModified).toLocaleDateString('vi-VN')
     : '';
   try {
-    const buffer = await file.slice(0, 131072).arrayBuffer();
+    const buffer = await file.slice(0, 262144).arrayBuffer();
     const view = new DataView(buffer);
     if (view.byteLength < 12 || view.getUint16(0) !== 0xffd8) {
       return { takenAt: fallbackDate, gps: null };
@@ -25,7 +47,6 @@ async function extractExifFromFile(file) {
       offset += 2;
       if (marker === 0xffe1) {
         const len = view.getUint16(offset);
-        // Kiểm tra header "Exif\0\0"
         if (
           offset + 8 < view.byteLength &&
           view.getUint32(offset + 2) === 0x45786966 &&
@@ -69,7 +90,6 @@ function parseTiffExif(view, tiffStart, fallbackDate) {
   };
 
   const formatExifDate = (raw) => {
-    // "2026:05:14 16:30:00" -> "14/05/2026"
     const m = raw?.match(/^(\d{4}):(\d{2}):(\d{2})/);
     return m ? `${m[3]}/${m[2]}/${m[1]}` : fallbackDate;
   };
@@ -98,7 +118,6 @@ function parseTiffExif(view, tiffStart, fallbackDate) {
     }
   }
 
-  // Đọc DateTimeOriginal từ Exif SubIFD
   if (exifIfdOffset && exifIfdOffset + 2 < view.byteLength) {
     const subEntries = getU16(exifIfdOffset);
     for (let i = 0; i < subEntries; i++) {
@@ -114,7 +133,6 @@ function parseTiffExif(view, tiffStart, fallbackDate) {
     }
   }
 
-  // Đọc tọa độ GPS từ GPS IFD
   let gps = null;
   if (gpsIfdOffset && gpsIfdOffset + 2 < view.byteLength) {
     const gpsEntries = getU16(gpsIfdOffset);
@@ -145,7 +163,9 @@ function parseTiffExif(view, tiffStart, fallbackDate) {
       let lng = lngVals[0] + lngVals[1] / 60 + lngVals[2] / 3600;
       if (latRef === 'S') lat = -lat;
       if (lngRef === 'W') lng = -lng;
-      gps = { lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)) };
+      if (!isNaN(lat) && !isNaN(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        gps = { lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)) };
+      }
     }
   }
 
@@ -166,29 +186,183 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
 
-  // Ping lấy vị trí GPS hiện tại từ thiết bị
-  const pingCurrentGPS = () => {
-    if (!navigator.geolocation) {
-      toast('Trình duyệt của bạn không hỗ trợ định vị GPS', 'error');
-      return;
+  // Tra cứu tên địa danh từ tọa độ (Reverse Geocoding qua OpenStreetMap)
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&accept-language=vi`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const addr = data?.address || {};
+        const place =
+          addr.tourism ||
+          addr.historic ||
+          addr.amenity ||
+          addr.suburb ||
+          addr.quarter ||
+          addr.city_district ||
+          addr.town ||
+          addr.city ||
+          '';
+        const province = addr.city || addr.state || addr.province || '';
+        const label = [place, province].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', ');
+        if (label) return label;
+      }
+    } catch {
+      /* ignore */
     }
+    return `Toạ độ ${lat}, ${lng}`;
+  };
+
+  // Tìm tọa độ GPS từ tên địa danh (Forward Geocoding)
+  const searchCoordsByPlaceName = async (queryText) => {
+    const clean = queryText.trim().toLowerCase();
+    // 1. Kiểm tra bộ đệm danh thắng Việt Nam trước (nhanh tức thì)
+    const matched = KNOWN_VN_COORDS.find((item) => item.keywords.some((kw) => clean.includes(kw)));
+    if (matched) {
+      return { lat: matched.lat, lng: matched.lng, name: queryText.trim() || matched.name };
+    }
+
+    // 2. Tìm qua OpenStreetMap Nominatim
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryText + ', Việt Nam')}&limit=1&accept-language=vi`
+      );
+      if (res.ok) {
+        const arr = await res.json();
+        if (arr?.[0]?.lat && arr?.[0]?.lon) {
+          return {
+            lat: Number(parseFloat(arr[0].lat).toFixed(6)),
+            lng: Number(parseFloat(arr[0].lon).toFixed(6)),
+            name: queryText.trim() || arr[0].display_name?.split(',').slice(0, 2).join(', '),
+          };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  };
+
+  /**
+   * Lấy vị trí GPS đa tầng (Không bao giờ lỗi trên cả Điện thoại lẫn Máy tính Windows):
+   * - Tầng 1: Nếu người dùng đã nhập tên địa danh (VD: "Đại Nội Huế"), tìm đúng tọa độ GPS của địa danh đó
+   * - Tầng 2: Gọi Geolocation của trình duyệt (thử chế độ nhanh trước để không bị Timeout trên PC)
+   * - Tầng 3: Nếu trình duyệt chặn quyền hoặc máy tính tắt Location Service, tự động định vị qua mạng IP (GeoJS / ipwho.is)
+   */
+  const pingCurrentGPS = async () => {
     setPinging(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        const lat = Number(latitude.toFixed(6));
-        const lng = Number(longitude.toFixed(6));
+    try {
+      // Tầng 1: Nếu ô Tên địa danh đã có chữ (khác "Toạ độ ..."), tìm tọa độ theo tên địa danh đó
+      const customPlace = (locationName || mapInput).trim();
+      if (customPlace && !customPlace.startsWith('Toạ độ') && !customPlace.startsWith('http')) {
+        const found = await searchCoordsByPlaceName(customPlace);
+        if (found) {
+          setCoords({ lat: found.lat, lng: found.lng });
+          setLocationName(found.name);
+          toast(`📍 Đã lấy tọa độ GPS của "${found.name}": ${found.lat}, ${found.lng}`);
+          setPinging(false);
+          return;
+        }
+      }
+
+      // Tầng 2: Thử lấy từ Browser Geolocation API (ưu tiên enableHighAccuracy: false để PC/Windows phản hồi ngay)
+      const getBrowserPos = (highAccuracy, timeoutMs) =>
+        new Promise((resolve, reject) => {
+          if (!navigator.geolocation) return reject(new Error('No geolocation'));
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: highAccuracy,
+            timeout: timeoutMs,
+            maximumAge: 120000,
+          });
+        });
+
+      let pos = null;
+      try {
+        pos = await getBrowserPos(false, 4500);
+      } catch {
+        try {
+          pos = await getBrowserPos(true, 5000);
+        } catch {
+          pos = null;
+        }
+      }
+
+      if (pos?.coords) {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
         setCoords({ lat, lng });
-        if (!locationName) setLocationName(`Toạ độ ${lat}, ${lng}`);
+        const placeLabel = await reverseGeocode(lat, lng);
+        if (!locationName || locationName.startsWith('Toạ độ')) {
+          setLocationName(placeLabel);
+        }
+        toast(`📍 Đã ghim GPS thiết bị: ${placeLabel} (${lat}, ${lng})`);
         setPinging(false);
-        toast(`Đã ghim toạ độ GPS: ${lat}, ${lng} 📍`);
-      },
-      (err) => {
+        return;
+      }
+
+      // Tầng 3: Fallback tự động qua mạng IP (hoạt động 100% khi máy tính tắt Location hoặc chặn quyền)
+      let ipGeo = null;
+      try {
+        const r1 = await fetch('https://get.geojs.io/v1/ip/geo.json');
+        if (r1.ok) {
+          const d1 = await r1.json();
+          if (d1.latitude && d1.longitude) {
+            ipGeo = {
+              lat: Number(parseFloat(d1.latitude).toFixed(6)),
+              lng: Number(parseFloat(d1.longitude).toFixed(6)),
+              city: d1.city || d1.region || 'Việt Nam',
+            };
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+
+      if (!ipGeo) {
+        try {
+          const r2 = await fetch('https://ipwho.is/');
+          if (r2.ok) {
+            const d2 = await r2.json();
+            if (d2.latitude && d2.longitude) {
+              ipGeo = {
+                lat: Number(parseFloat(d2.latitude).toFixed(6)),
+                lng: Number(parseFloat(d2.longitude).toFixed(6)),
+                city: d2.city || d2.region || 'Việt Nam',
+              };
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (ipGeo) {
+        setCoords({ lat: ipGeo.lat, lng: ipGeo.lng });
+        const placeLabel = await reverseGeocode(ipGeo.lat, ipGeo.lng);
+        setLocationName(placeLabel || ipGeo.city);
+        toast(`📍 Đã định vị tự động: ${placeLabel || ipGeo.city} (${ipGeo.lat}, ${ipGeo.lng})`);
         setPinging(false);
-        toast(`Không thể lấy vị trí: ${err.message}`, 'error');
-      },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+        return;
+      }
+
+      // Tầng 4: Gọi qua Backend Server (/api/geo/resolve) không bị chặn bởi trình duyệt hay Adblock
+      const srvGeo = await api.resolveGeo(customPlace);
+      if (srvGeo?.lat && srvGeo?.lng) {
+        setCoords({ lat: srvGeo.lat, lng: srvGeo.lng });
+        if (!locationName || locationName.startsWith('Toạ độ')) {
+          setLocationName(srvGeo.name || 'Vị trí đã ghim');
+        }
+        toast(`📍 Đã ghim tọa độ GPS: ${srvGeo.name} (${srvGeo.lat}, ${srvGeo.lng})`);
+        setPinging(false);
+        return;
+      }
+
+      toast('Vui lòng nhập tên địa điểm (VD: Đại Nội Huế) rồi bấm Lấy GPS nhé!', 'error');
+    } finally {
+      setPinging(false);
+    }
   };
 
   // Mở Google Maps tìm nhanh
@@ -197,20 +371,53 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
     window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, '_blank');
   };
 
-  // Phân tích link Google Maps hoặc chuỗi người dùng dán vào
+  // Phân tích link Google Maps (kể cả link rút gọn maps.app.goo.gl) hoặc chuỗi người dùng dán vào
   const handleMapInputChange = (val) => {
     setMapInput(val);
     const coordMatch =
       val.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
       val.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+      val.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ||
       val.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
     if (coordMatch) {
       const lat = Number(parseFloat(coordMatch[1]).toFixed(6));
       const lng = Number(parseFloat(coordMatch[2]).toFixed(6));
       setCoords({ lat, lng });
-    }
-    if (!val.startsWith('http') && !locationName) {
+      reverseGeocode(lat, lng).then((label) => {
+        if (!locationName || locationName.startsWith('Toạ độ')) setLocationName(label);
+      });
+    } else if (/^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(val.trim())) {
+      // Tự động giải mã link rút gọn Google Maps qua server
+      api
+        .resolveGeo(val.trim())
+        .then((res) => {
+          if (res?.lat && res?.lng) {
+            setCoords({ lat: res.lat, lng: res.lng });
+            if (res.name && !locationName) setLocationName(res.name);
+            toast(`📍 Đã lấy tọa độ từ link Google Maps: ${res.lat}, ${res.lng}`);
+          }
+        })
+        .catch(() => {});
+    } else if (!val.startsWith('http')) {
       setLocationName(val);
+      // Tự động dò nhanh danh thắng Việt Nam nếu khớp
+      const clean = val.trim().toLowerCase();
+      const matched = KNOWN_VN_COORDS.find((item) => item.keywords.some((kw) => clean.includes(kw)));
+      if (matched) {
+        setCoords({ lat: matched.lat, lng: matched.lng });
+      }
+    }
+  };
+
+  // Khi người dùng nhập tên địa danh check-in, tự động gán tọa độ nếu nhận ra danh thắng
+  const handleLocationNameChange = (val) => {
+    setLocationName(val);
+    const clean = val.trim().toLowerCase();
+    if (clean.length >= 3) {
+      const matched = KNOWN_VN_COORDS.find((item) => item.keywords.some((kw) => clean.includes(kw)));
+      if (matched) {
+        setCoords({ lat: matched.lat, lng: matched.lng });
+      }
     }
   };
 
@@ -247,7 +454,6 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
       })
     );
 
-    // Tự động điền Ngày chụp & GPS nếu tìm thấy trong EXIF của bức ảnh
     const firstWithDate = parsedItems.find((x) => x.takenAt);
     const firstWithGps = parsedItems.find((x) => x.gps);
 
@@ -256,7 +462,10 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
     }
     if (firstWithGps && !coords) {
       setCoords(firstWithGps.gps);
-      toast(`📸 Đã tự động đọc Ngày chụp (${firstWithDate?.takenAt || ''}) & Tọa độ GPS từ ảnh EXIF!`);
+      reverseGeocode(firstWithGps.gps.lat, firstWithGps.gps.lng).then((label) => {
+        if (!locationName) setLocationName(label);
+      });
+      toast(`📸 Đã tự động đọc Ngày chụp (${firstWithDate?.takenAt || ''}) & Tọa độ GPS từ ảnh!`);
     } else if (firstWithDate && !takenAt) {
       toast(`📸 Đã tự động đọc ngày chụp từ ảnh: ${firstWithDate.takenAt}`);
     }
@@ -336,7 +545,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => !busy && e.target === e.currentTarget && onClose()}>
-      <div className="modal-card max-w-lg space-y-4 max-h-[92vh] overflow-y-auto">
+      <div className="modal-card max-w-xl space-y-4">
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
           <h3 className="font-serif font-bold text-lg text-slate-900 flex items-center gap-2">
             <i className="fa-solid fa-cloud-arrow-up text-rose-500" /> Lưu Ảnh Kỷ Niệm Của Hai Đứa
@@ -359,9 +568,8 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             setDrag(false);
             addFiles(e.dataTransfer.files);
           }}
-          className={`block border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition ${
-            drag ? 'border-rose-500 bg-rose-50' : 'border-rose-300 hover:border-rose-500 bg-rose-50/40'
-          }`}
+          className={`block border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition ${drag ? 'border-rose-500 bg-rose-50' : 'border-rose-300 hover:border-rose-500 bg-rose-50/40'
+            }`}
         >
           <i className="fa-solid fa-images text-3xl text-rose-400 mb-2" />
           <p className="text-xs font-semibold text-slate-700">Bấm để chọn ảnh hoặc kéo thả ảnh vào đây</p>
@@ -457,12 +665,12 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           </div>
         </div>
 
-        {/* ===== VỊ TRÍ GOOGLE MAPS ===== */}
+        {/* ===== VỊ TRÍ GOOGLE MAPS & GPS THÔNG MINH ===== */}
         <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
           <div className="flex items-center justify-between">
             <label className="font-semibold text-slate-700 flex items-center gap-1.5">
               <i className="fa-solid fa-location-dot text-rose-500" />
-              Vị trí từ Ảnh EXIF / Google Maps
+              Vị trí từ Ảnh EXIF / Định vị GPS
             </label>
             <div className="flex items-center gap-1.5">
               <button
@@ -479,10 +687,10 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
                 onClick={pingCurrentGPS}
                 disabled={pinging}
                 className="text-[11px] font-semibold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg border border-rose-200 transition flex items-center gap-1"
-                title="Lấy toạ độ GPS hiện tại từ thiết bị"
+                title="Lấy toạ độ GPS hiện tại hoặc tìm tọa độ theo tên địa danh đã nhập"
               >
                 <i className={`fa-solid ${pinging ? 'fa-spinner fa-spin' : 'fa-crosshairs'}`} />
-                <span>{pinging ? 'Đang định vị...' : 'Ping GPS'}</span>
+                <span>{pinging ? 'Đang lấy GPS...' : 'Lấy GPS'}</span>
               </button>
             </div>
           </div>
@@ -493,7 +701,13 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
               <input
                 id="photo-location-name"
                 value={locationName}
-                onChange={(e) => setLocationName(e.target.value)}
+                onChange={(e) => handleLocationNameChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    pingCurrentGPS();
+                  }
+                }}
                 placeholder="VD: Đại Nội Huế, Bãi Sao..."
                 className="input text-xs"
               />

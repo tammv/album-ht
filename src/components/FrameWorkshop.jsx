@@ -91,8 +91,8 @@ export default function FrameWorkshop({ photo, album, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[55] flex items-center justify-center p-3 sm:p-6 overflow-y-auto" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 my-auto animate-fade-up">
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-card max-w-4xl">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div>
             <h3 className="font-serif font-bold text-xl text-slate-900 flex items-center gap-2">

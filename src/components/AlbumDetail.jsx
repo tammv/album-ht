@@ -1,18 +1,20 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api, thumb } from '../api.js';
 import { useToast } from './Toast.jsx';
 import LazyImage from './LazyImage.jsx';
 
-// Lazy load các công cụ nặng (Flipbook 3D, Cover Studio AI, Xưởng Khung, Lightbox, Upload)
+// Lazy load các công cụ nặng (Flipbook 3D, Cover Studio AI, Xưởng Khung, Lightbox, Upload, Bản Đồ)
 const UploadModal = lazy(() => import('./UploadModal.jsx'));
 const Lightbox = lazy(() => import('./Lightbox.jsx'));
 const Flipbook = lazy(() => import('./Flipbook.jsx'));
 const FrameWorkshop = lazy(() => import('./FrameWorkshop.jsx'));
 const CoverStudio = lazy(() => import('./CoverStudio.jsx'));
+const VietnamMapModal = lazy(() => import('./VietnamMapModal.jsx'));
 
 const PAGE_BATCH_SIZE = 20;
 
-export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
+export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBack, onLocked, onDeleted }) {
   const toast = useToast();
   const [album, setAlbum] = useState(null);
   const [photos, setPhotos] = useState([]);
@@ -144,6 +146,7 @@ export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
 
   const needPhotos = (fn) => () => (photos.length ? fn() : toast('Album chưa có ảnh nào', 'error'));
   const visiblePhotos = photos.slice(0, visibleCount);
+  const checkInPhotos = photos.filter((p) => p.locationName || typeof p.lat === 'number');
 
   return (
     <section className="space-y-8 animate-fade-up">
@@ -240,6 +243,15 @@ export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            id="open-map-detail"
+            type="button"
+            onClick={() => setModal('map')}
+            className="px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition flex items-center gap-2 active:scale-95"
+          >
+            <i className="fa-solid fa-map-location-dot text-rose-500" />
+            <span>Các Điểm Đã Đến</span>
+          </button>
           <button id="open-cover-studio" onClick={() => setModal('cover')} className="px-3.5 py-2.5 bg-gradient-to-r from-purple-600 via-rose-600 to-amber-500 hover:opacity-95 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-rose-200 transition flex items-center gap-2 active:scale-95">
             <i className="fa-solid fa-wand-magic-sparkles" />
             <span>Tạo Bìa Sách AI</span>
@@ -258,6 +270,50 @@ export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
           </button>
         </div>
       </div>
+
+      {/* Thanh hiển thị nhanh các điểm check-in GPS trong chuyến đi */}
+      {checkInPhotos.length > 0 && (
+        <div className="bg-white p-3.5 rounded-2xl border border-amber-200/80 shadow-xs flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mr-1">
+              <i className="fa-solid fa-location-crosshairs text-rose-500" />
+              Điểm check-in trong chuyến đi:
+            </span>
+            {Array.from(
+              new Map(
+                checkInPhotos.map((p) => {
+                  const label = p.locationName || `${p.lat?.toFixed(4)}, ${p.lng?.toFixed(4)}`;
+                  const url =
+                    p.mapUrl ||
+                    (typeof p.lat === 'number'
+                      ? `https://www.google.com/maps?q=${p.lat},${p.lng}`
+                      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(label)}`);
+                  return [label, { label, url }];
+                })
+              ).values()
+            ).map((item) => (
+              <a
+                key={item.label}
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold flex items-center gap-1 transition"
+              >
+                <i className="fa-solid fa-location-dot text-rose-500" />
+                <span>{item.label}</span>
+              </a>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setModal('map')}
+            className="text-xs font-semibold text-amber-700 hover:text-rose-600 flex items-center gap-1"
+          >
+            <span>Xem trên Bản đồ chữ S</span>
+            <i className="fa-solid fa-chevron-right text-[10px]" />
+          </button>
+        </div>
+      )}
 
       {/* Tag & search */}
       {(tags.length > 0 || photos.length > 0 || q) && (
@@ -307,11 +363,10 @@ export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
                   setDragOverIdx(null);
                 }}
                 style={{ animationDelay: `${Math.min(i, 12) * 30}ms`, transform: `rotate(${((i % 5) - 2) * 0.6}deg)` }}
-                className={`group relative bg-white p-2 pb-3 rounded-xl shadow-sm border transition-all duration-300 animate-fade-up ${
-                  dragOverIdx === i
+                className={`group relative bg-white p-2 pb-3 rounded-xl shadow-sm border transition-all duration-300 animate-fade-up ${dragOverIdx === i
                     ? 'border-2 border-rose-500 scale-105 ring-4 ring-rose-200/60 z-20'
                     : 'border-slate-200/80 hover:shadow-xl hover:z-10 hover:!rotate-0 hover:scale-[1.03]'
-                } ${dragIdx === i ? 'opacity-40' : ''}`}
+                  } ${dragIdx === i ? 'opacity-40' : ''}`}
               >
                 <button onClick={() => setModal({ lightbox: i })} className="block w-full aspect-square overflow-hidden rounded-lg bg-slate-100">
                   <LazyImage
@@ -356,43 +411,59 @@ export default function AlbumDetail({ albumId, onBack, onLocked, onDeleted }) {
         </>
       )}
 
-      <Suspense
-        fallback={
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
-            <div className="bg-white px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-sm font-medium text-slate-700">
-              <i className="fa-solid fa-spinner fa-spin text-rose-500 text-lg" />
-              <span>Đang mở không gian kỷ niệm...</span>
-            </div>
-          </div>
-        }
-      >
-        {modal === 'upload' && <UploadModal albumId={albumId} onClose={() => setModal(null)} onUploaded={load} />}
-        {modal === 'flip' && <Flipbook album={album} photos={photos} onClose={() => setModal(null)} />}
-        {modal === 'cover' && (
-          <CoverStudio
-            album={album}
-            photos={photos}
-            onClose={() => setModal(null)}
-            onSaved={(newCover) => {
-              setAlbum((a) => ({ ...a, coverPhoto: newCover }));
-              load();
-            }}
-          />
+      {modal &&
+        createPortal(
+          <Suspense
+            fallback={
+              <div className="fixed inset-0 w-screen h-screen z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                <div className="bg-white px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-sm font-medium text-slate-700">
+                  <i className="fa-solid fa-spinner fa-spin text-rose-500 text-lg" />
+                  <span>Đang mở không gian kỷ niệm...</span>
+                </div>
+              </div>
+            }
+          >
+            {modal === 'upload' && <UploadModal albumId={albumId} onClose={() => setModal(null)} onUploaded={load} />}
+            {modal === 'flip' && <Flipbook album={album} photos={photos} onClose={() => setModal(null)} />}
+            {modal === 'map' && (
+              <VietnamMapModal
+                albums={allAlbums?.length ? allAlbums : [album]}
+                currentAlbum={album}
+                photos={photos}
+                onOpenAlbum={(a) => {
+                  setModal(null);
+                  if (onOpenAlbum) onOpenAlbum(a);
+                }}
+                onClose={() => setModal(null)}
+              />
+            )}
+            {modal === 'cover' && (
+              <CoverStudio
+                album={album}
+                photos={photos}
+                onClose={() => setModal(null)}
+                onSaved={(newCover) => {
+                  setAlbum((a) => ({ ...a, coverPhoto: newCover }));
+                  load();
+                }}
+              />
+            )}
+            {modal?.lightbox !== undefined && (
+              <Lightbox
+                photos={photos}
+                start={modal.lightbox}
+                autoPlay={modal.play}
+                title={album.title}
+                onClose={() => setModal(null)}
+                onDelete={removePhoto}
+                onFrame={(p) => setModal({ frame: p })}
+                onUpdated={load}
+              />
+            )}
+            {modal?.frame && <FrameWorkshop photo={modal.frame} album={album} onClose={() => setModal(null)} />}
+          </Suspense>,
+          document.body
         )}
-        {modal?.lightbox !== undefined && (
-          <Lightbox
-            photos={photos}
-            start={modal.lightbox}
-            autoPlay={modal.play}
-            title={album.title}
-            onClose={() => setModal(null)}
-            onDelete={removePhoto}
-            onFrame={(p) => setModal({ frame: p })}
-            onUpdated={load}
-          />
-        )}
-        {modal?.frame && <FrameWorkshop photo={modal.frame} album={album} onClose={() => setModal(null)} />}
-      </Suspense>
     </section>
   );
 }

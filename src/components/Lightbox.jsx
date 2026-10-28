@@ -80,7 +80,7 @@ export default function Lightbox({ photos = [], start = 0, autoPlay = false, tit
 
   return (
     <div
-      className="fixed inset-0 bg-black/95 z-50 flex flex-col justify-between p-3 sm:p-5 select-none overflow-hidden"
+      className="fixed inset-0 w-screen h-screen bg-black/95 z-[100] flex flex-col justify-between p-3 sm:p-5 select-none overflow-y-auto overflow-x-hidden"
       onTouchStart={(e) => (touchStartX.current = e.touches[0].clientX)}
       onTouchEnd={(e) => {
         const dx = e.changedTouches[0].clientX - (touchStartX.current ?? 0);

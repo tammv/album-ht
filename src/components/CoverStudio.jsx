@@ -1053,8 +1053,11 @@ export default function CoverStudio({ album, photos = [], onClose, onSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-fade-in">
-      <div className="bg-white rounded-3xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl border border-rose-100 flex flex-col max-h-[94vh]">
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => !saving && e.target === e.currentTarget && onClose()}
+    >
+      <div className="modal-card max-w-5xl">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
@@ -1069,17 +1072,17 @@ export default function CoverStudio({ album, photos = [], onClose, onSaved }) {
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition"
+            className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition flex-shrink-0"
           >
             <i className="fa-solid fa-xmark text-sm" />
           </button>
         </div>
 
-        {/* Content Area */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4 flex-grow overflow-y-auto pr-1">
-          {/* Cột trái: Bìa sách trực quan 3:4 */}
-          <div className="lg:col-span-5 flex flex-col items-center justify-center bg-stone-100 rounded-2xl p-4 border border-stone-200">
-            <div className="relative shadow-2xl rounded-r-2xl rounded-l-md overflow-hidden max-h-[490px] w-auto aspect-[3/4] border-l-[6px] border-amber-950/40 bg-[#FAF6EE]">
+        {/* Content Area — Cuộn tự nhiên toàn màn hình từ cả bên ngoài lẫn bên trong */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4 items-start">
+          {/* Cột trái: Bìa sách trực quan 3:4 (Sticky trên màn hình lớn) */}
+          <div className="lg:col-span-5 lg:sticky lg:top-4 flex flex-col items-center justify-center bg-stone-100 rounded-2xl p-3 sm:p-4 border border-stone-200">
+            <div className="relative shadow-2xl rounded-r-2xl rounded-l-md overflow-hidden max-h-[380px] sm:max-h-[480px] w-auto aspect-[3/4] border-l-[6px] border-amber-950/40 bg-[#FAF6EE]">
               <canvas ref={canvasRef} className="w-full h-full object-contain block" />
               {(generatingAi || detectingLandmark) && (
                 <div className="absolute inset-0 bg-white/85 backdrop-blur-sm flex flex-col items-center justify-center text-center p-4">
@@ -1167,7 +1170,7 @@ export default function CoverStudio({ album, photos = [], onClose, onSaved }) {
               </div>
 
               {/* Chọn nhanh 12 Mẫu Bìa Danh Thắng Việt Nam */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                 {REALISTIC_TRAVEL_PRESETS.map((preset) => (
                   <button
                     key={preset.id}

@@ -23,8 +23,15 @@ const VN_DESTINATIONS = [
   { id: 'condao', name: 'Côn Đảo', region: 'Biển Đảo', x: 222, y: 705, keywords: ['côn đảo'] },
 ];
 
-export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
-  const [selectedSpotId, setSelectedSpotId] = useState(null);
+export default function VietnamMapModal({ albums = [], currentAlbum = null, photos = [], onOpenAlbum, onClose }) {
+  const [selectedSpotId, setSelectedSpotId] = useState(() => {
+    if (currentAlbum) {
+      const text = `${currentAlbum.location || ''} ${currentAlbum.title || ''}`.toLowerCase();
+      const found = VN_DESTINATIONS.find((s) => s.keywords.some((kw) => text.includes(kw)));
+      if (found) return found.id;
+    }
+    return null;
+  });
 
   // Ghép các album vào từng tọa độ địa danh trên bản đồ chữ S
   const spotsWithAlbums = useMemo(() => {
@@ -43,21 +50,43 @@ export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
     });
   }, [albums]);
 
+  // Danh sách các điểm check-in cụ thể từ ảnh (nếu đang mở trong 1 album)
+  const photoCheckins = useMemo(() => {
+    const map = new Map();
+    photos.forEach((p) => {
+      const key = p.locationName || (typeof p.lat === 'number' ? `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}` : '');
+      if (!key) return;
+      if (!map.has(key)) {
+        map.set(key, {
+          name: p.locationName || `Tọa độ ${key}`,
+          mapUrl: p.mapUrl || (typeof p.lat === 'number' ? `https://www.google.com/maps?q=${p.lat},${p.lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.locationName)}`),
+          lat: p.lat,
+          lng: p.lng,
+          count: 1,
+          thumbUrl: p.url,
+        });
+      } else {
+        map.get(key).count += 1;
+      }
+    });
+    return Array.from(map.values());
+  }, [photos]);
+
   const visitedSpots = spotsWithAlbums.filter((s) => s.visited);
   const activeSpot = spotsWithAlbums.find((s) => s.id === selectedSpotId) || visitedSpots[0] || spotsWithAlbums[6];
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-fade-in"
+      className="modal-backdrop"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white rounded-3xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl border border-rose-100 flex flex-col max-h-[92vh]">
+      <div className="modal-card max-w-5xl">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
             <h2 className="font-serif font-bold text-lg sm:text-xl text-slate-900 flex items-center gap-2">
               <i className="fa-solid fa-map-location-dot text-rose-500" />
-              Bản Đồ Hành Trình Chữ S Của Hai Đứa 🇻🇳
+              Các Điểm Đã Đến • Bản Đồ Hành Trình Chữ S 🇻🇳
             </h2>
             <p className="text-xs text-slate-500">
               Đã đặt chân tới <b className="text-rose-600">{visitedSpots.length}</b> vùng đất • Lưu giữ{' '}
@@ -66,14 +95,44 @@ export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition"
+            className="w-9 h-9 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition flex-shrink-0"
           >
             <i className="fa-solid fa-xmark" />
           </button>
         </div>
 
+        {/* Nếu mở từ trang chi tiết Album và có các điểm check-in GPS trong ảnh */}
+        {currentAlbum && photoCheckins.length > 0 && (
+          <div className="mt-4 p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                <i className="fa-solid fa-location-crosshairs text-rose-500" />
+                Các tọa độ & địa điểm đã check-in trong chuyến đi "{currentAlbum.title}" ({photoCheckins.length} điểm):
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {photoCheckins.map((c, idx) => (
+                <a
+                  key={idx}
+                  href={c.mapUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white hover:bg-rose-50 border border-amber-200 hover:border-rose-300 text-xs font-medium text-slate-700 hover:text-rose-600 shadow-xs transition"
+                >
+                  <i className="fa-solid fa-location-dot text-rose-500" />
+                  <span>{c.name}</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">
+                    {c.count} ảnh
+                  </span>
+                  <i className="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-400" />
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Nội dung Bản Đồ + Chi Tiết Điểm Đến */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4 flex-grow overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4 items-start">
           {/* Cột Trái: Bản đồ SVG chữ S Việt Nam tương tác */}
           <div className="lg:col-span-7 bg-gradient-to-b from-sky-50 via-amber-50/40 to-teal-50/60 rounded-2xl p-3 sm:p-4 border border-sky-100 flex flex-col items-center justify-center relative overflow-hidden">
             <div className="absolute top-3 left-3 bg-white/90 backdrop-blur px-3 py-1.5 rounded-xl border border-rose-100 text-[11px] text-slate-600 shadow-xs space-y-1">
@@ -158,11 +217,10 @@ export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
                       x={spot.x < 160 ? -12 : 12}
                       y={4}
                       textAnchor={spot.x < 160 ? 'end' : 'start'}
-                      className={`text-[11px] transition ${
-                        spot.visited
+                      className={`text-[11px] transition ${spot.visited
                           ? 'font-bold fill-rose-800'
                           : 'font-medium fill-slate-500 opacity-75 group-hover:opacity-100'
-                      }`}
+                        }`}
                     >
                       {spot.name} {spot.visited ? `(${spot.albums.length})` : ''}
                     </text>
@@ -200,7 +258,7 @@ export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
 
               {/* Danh sách Album tại địa điểm này */}
               {activeSpot?.albums?.length > 0 && (
-                <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
+                <div className="space-y-2.5">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                     Chuyến đi tại {activeSpot.name}:
                   </h4>
@@ -209,7 +267,7 @@ export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
                       key={a._id}
                       onClick={() => {
                         onClose();
-                        onOpenAlbum(a);
+                        if (onOpenAlbum) onOpenAlbum(a);
                       }}
                       className="flex items-center gap-3 p-2.5 rounded-2xl bg-white border border-slate-200 hover:border-rose-400 hover:shadow-md cursor-pointer transition group"
                     >
@@ -247,13 +305,12 @@ export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
                       key={s.id}
                       type="button"
                       onClick={() => setSelectedSpotId(s.id)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${
-                        activeSpot?.id === s.id
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${activeSpot?.id === s.id
                           ? 'bg-rose-600 text-white shadow-xs'
                           : s.visited
-                          ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                      }`}
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        }`}
                     >
                       {s.visited && '📍 '}
                       {s.name}
@@ -268,4 +325,3 @@ export default function VietnamMapModal({ albums = [], onOpenAlbum, onClose }) {
     </div>
   );
 }
-

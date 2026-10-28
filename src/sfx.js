@@ -6,17 +6,48 @@ class SoundFX {
     this.bgmPlaying = false;
     this.bgmTimer = null;
     this.stepIdx = 0;
+    this.listeners = new Set();
+
+    // Tự động đánh thức AudioContext ngay khi người dùng chạm/nhấp chuột lần đầu
+    if (typeof window !== 'undefined') {
+      const unlockAudio = () => {
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => { });
+        }
+      };
+      window.addEventListener('pointerdown', unlockAudio, { passive: true });
+      window.addEventListener('keydown', unlockAudio, { passive: true });
+    }
+  }
+
+  subscribe(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  notify() {
+    this.listeners.forEach((fn) => {
+      try {
+        fn({ bgmPlaying: this.bgmPlaying, enabled: this.enabled });
+      } catch { /* ignore */ }
+    });
   }
 
   init() {
-    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AudioCtx();
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => { });
+    }
   }
 
   toggle() {
     this.enabled = !this.enabled;
     localStorage.setItem('sfx', this.enabled ? 'on' : 'off');
     if (!this.enabled) this.stopBgm();
+    this.notify();
     return this.enabled;
   }
 
@@ -28,16 +59,21 @@ class SoundFX {
       const buf = c.createBuffer(1, size, c.sampleRate);
       const d = buf.getChannelData(0);
       for (let i = 0; i < size; i++) d[i] = Math.random() * 2 - 1;
-      const src = this.createBufferSource ? c.createBufferSource() : c.createBufferSource();
+      const src = c.createBufferSource();
       src.buffer = buf;
-      const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 3;
+      const f = c.createBiquadFilter();
+      f.type = 'bandpass';
+      f.Q.value = 3;
       f.frequency.setValueAtTime(800, c.currentTime);
       f.frequency.exponentialRampToValueAtTime(300, c.currentTime + 0.25);
       const g = c.createGain();
       g.gain.setValueAtTime(0.01, c.currentTime);
-      g.gain.linearRampToValueAtTime(0.2, c.currentTime + 0.05);
+      g.gain.linearRampToValueAtTime(0.22, c.currentTime + 0.05);
       g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.25);
-      src.connect(f); f.connect(g); g.connect(c.destination); src.start();
+      src.connect(f);
+      f.connect(g);
+      g.connect(c.destination);
+      src.start();
     } catch { /* ignore */ }
   }
 
@@ -46,10 +82,14 @@ class SoundFX {
     try {
       this.init();
       const c = this.ctx, o = c.createOscillator(), g = c.createGain();
-      o.type = 'sine'; o.frequency.value = 440;
-      g.gain.setValueAtTime(0.05, c.currentTime);
+      o.type = 'sine';
+      o.frequency.value = 440;
+      g.gain.setValueAtTime(0.06, c.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.06);
-      o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + 0.06);
+      o.connect(g);
+      g.connect(c.destination);
+      o.start();
+      o.stop(c.currentTime + 0.06);
     } catch { /* ignore */ }
   }
 
@@ -60,48 +100,57 @@ class SoundFX {
       const c = this.ctx;
       [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
         const t = c.currentTime + i * 0.08, o = c.createOscillator(), g = c.createGain();
-        o.type = 'triangle'; o.frequency.setValueAtTime(freq, t);
-        g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-        o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + 0.25);
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(freq, t);
+        g.gain.setValueAtTime(0.12, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+        o.connect(g);
+        g.connect(c.destination);
+        o.start(t);
+        o.stop(t + 0.25);
       });
     } catch { /* ignore */ }
   }
 
   /**
-   * Phát một nốt nhạc ấm áp (Acoustic Guitar / Rhodes Piano)
+   * Phát một nốt nhạc ấm áp, rõ tiếng (Acoustic Guitar & Piano)
    */
-  playNote(freq, startTime, duration = 0.8, volume = 0.045, type = 'triangle') {
+  playNote(freq, startTime, duration = 0.9, volume = 0.14, type = 'triangle') {
     if (!this.ctx || !freq) return;
     try {
       const c = this.ctx;
       const osc = c.createOscillator();
-      const sub = c.createOscillator();
+      const harmonic = c.createOscillator();
       const filter = c.createBiquadFilter();
       const gain = c.createGain();
 
       osc.type = type;
       osc.frequency.setValueAtTime(freq, startTime);
 
-      sub.type = 'sine';
-      sub.frequency.setValueAtTime(freq * 0.5, startTime);
+      harmonic.type = 'sine';
+      harmonic.frequency.setValueAtTime(freq * 2, startTime);
+
+      const harmGain = c.createGain();
+      harmGain.gain.setValueAtTime(volume * 0.25, startTime);
 
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(1400, startTime);
-      filter.frequency.exponentialRampToValueAtTime(450, startTime + duration);
+      filter.frequency.setValueAtTime(2600, startTime);
+      filter.frequency.exponentialRampToValueAtTime(900, startTime + duration);
 
       gain.gain.setValueAtTime(0.0001, startTime);
-      gain.gain.linearRampToValueAtTime(volume, startTime + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0008, startTime + duration);
+      gain.gain.linearRampToValueAtTime(volume, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
 
       osc.connect(filter);
-      sub.connect(filter);
+      harmonic.connect(harmGain);
+      harmGain.connect(filter);
       filter.connect(gain);
       gain.connect(c.destination);
 
       osc.start(startTime);
-      sub.start(startTime);
+      harmonic.start(startTime);
       osc.stop(startTime + duration + 0.05);
-      sub.stop(startTime + duration + 0.05);
+      harmonic.stop(startTime + duration + 0.05);
     } catch { /* ignore */ }
   }
 
@@ -111,9 +160,12 @@ class SoundFX {
   startBgm() {
     if (this.bgmPlaying) return;
     try {
+      this.enabled = true;
+      localStorage.setItem('sfx', 'on');
       this.init();
       this.bgmPlaying = true;
       this.stepIdx = 0;
+      this.notify();
 
       // Tần số các nốt nhạc chuẩn
       const N = {
@@ -125,49 +177,52 @@ class SoundFX {
       // Vòng rải Guitar + Giai điệu "Cho Tôi Đi Theo" (Ngọt):
       // "Này em ơi... cho tôi đi theo với... đến nơi đâu cũng được..."
       const sequence = [
-        // Ô nhịp 1: Gmaj7 (Này em ơi...)
-        { bass: N.G2, chord: [N.D3, N.G3, N.B3], melody: N.B4, dur: 1.1 },
+        // Ô nhịp 1: Gmaj7 ("Này em ơi...")
+        { bass: N.G3, chord: [N.D4, N.G4, N.B4], melody: N.B4, dur: 1.0 },
         { chord: [N.G3, N.B3], melody: N.D5, dur: 0.7 },
-        { chord: [N.D3, N.B3], melody: N.B4, dur: 0.9 },
-        { chord: [N.G3], melody: N.G4, dur: 1.0 },
-        // Ô nhịp 2: Bm7 (Cho tôi đi theo với...)
-        { bass: N.B2, chord: [N.Fs3, N.A3, N.D4], melody: N.Fs4, dur: 1.1 },
+        { chord: [N.D4, N.B4], melody: N.B4, dur: 0.85 },
+        { chord: [N.G3, N.D4], melody: N.G4, dur: 0.95 },
+        // Ô nhịp 2: Bm7 ("Cho tôi đi theo với...")
+        { bass: N.B2, chord: [N.Fs3, N.A3, N.D4], melody: N.Fs4, dur: 1.0 },
         { chord: [N.A3, N.D4], melody: N.A4, dur: 0.7 },
-        { chord: [N.Fs3, N.D4], melody: N.B4, dur: 0.9 },
-        { chord: [N.A3], melody: N.Fs4, dur: 1.0 },
-        // Ô nhịp 3: Cmaj7 (Đến nơi đâu cũng được...)
-        { bass: N.C3, chord: [N.E3, N.G3, N.B3], melody: N.E4, dur: 1.1 },
+        { chord: [N.Fs3, N.D4], melody: N.B4, dur: 0.85 },
+        { chord: [N.A3, N.D4], melody: N.Fs4, dur: 0.95 },
+        // Ô nhịp 3: Cmaj7 ("Đến nơi đâu cũng được...")
+        { bass: N.C3, chord: [N.E3, N.G3, N.B3], melody: N.E4, dur: 1.0 },
         { chord: [N.G3, N.B3], melody: N.G4, dur: 0.7 },
-        { chord: [N.E3, N.C4], melody: N.B4, dur: 0.9 },
-        { chord: [N.G3], melody: N.A4, dur: 1.0 },
-        // Ô nhịp 4: Cm6 -> D7 (Miễn là cùng bên nhau...)
-        { bass: N.C3, chord: [N.Eb4, N.G3, N.A3], melody: N.G4, dur: 1.2 },
+        { chord: [N.E3, N.C4], melody: N.B4, dur: 0.85 },
+        { chord: [N.G3, N.C4], melody: N.A4, dur: 0.95 },
+        // Ô nhịp 4: Cm6 -> D7 ("Miễn là cùng bên nhau...")
+        { bass: N.C3, chord: [N.Eb4, N.G3, N.A3], melody: N.G4, dur: 1.1 },
         { chord: [N.G3, N.C4], melody: N.E4, dur: 0.7 },
-        { bass: N.D3, chord: [N.Fs3, N.A3, N.C4], melody: N.Fs4, dur: 1.1 },
-        { chord: [N.A3, N.C4], melody: N.D4, dur: 1.2 },
+        { bass: N.D3, chord: [N.Fs3, N.A3, N.C4], melody: N.Fs4, dur: 1.0 },
+        { chord: [N.A3, N.C4], melody: N.G4, dur: 1.1 },
       ];
 
       const tick = () => {
         if (!this.bgmPlaying || !this.ctx) return;
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => { });
+        }
         const now = this.ctx.currentTime;
         const item = sequence[this.stepIdx % sequence.length];
         this.stepIdx += 1;
 
         if (item.bass) {
-          this.playNote(item.bass, now, 1.4, 0.035, 'sine');
+          this.playNote(item.bass, now, 1.3, 0.14, 'triangle');
         }
         if (item.chord) {
           item.chord.forEach((f, idx) => {
-            this.playNote(f, now + idx * 0.06, 0.9, 0.022, 'triangle');
+            this.playNote(f, now + idx * 0.055, 0.85, 0.09, 'triangle');
           });
         }
         if (item.melody) {
-          this.playNote(item.melody, now + 0.08, item.dur, 0.042, 'sine');
+          this.playNote(item.melody, now + 0.07, item.dur, 0.18, 'sine');
         }
       };
 
       tick();
-      this.bgmTimer = setInterval(tick, 460);
+      this.bgmTimer = setInterval(tick, 440);
     } catch { /* ignore */ }
   }
 
@@ -177,6 +232,7 @@ class SoundFX {
       clearInterval(this.bgmTimer);
       this.bgmTimer = null;
     }
+    this.notify();
   }
 }
 

@@ -8,6 +8,7 @@ const AlbumDetail = lazy(() => import('./components/AlbumDetail.jsx'));
 const NewAlbumModal = lazy(() => import('./components/NewAlbumModal.jsx'));
 const PinModal = lazy(() => import('./components/PinModal.jsx'));
 const AdminModal = lazy(() => import('./components/AdminModal.jsx'));
+const VietnamMapModal = lazy(() => import('./components/VietnamMapModal.jsx'));
 
 /** Router tối giản dựa trên hash: #/ và #/album/:id */
 const parseHash = () => {
@@ -19,6 +20,8 @@ export default function App() {
   const [albumId, setAlbumId] = useState(parseHash);
   const [showNew, setShowNew] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showGlobalMap, setShowGlobalMap] = useState(false);
+  const [allAlbums, setAllAlbums] = useState([]);
   const [pinAlbum, setPinAlbum] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [config, setConfig] = useState({ adminRequired: false });
@@ -29,6 +32,12 @@ export default function App() {
     api.config().then(setConfig).catch(() => {});
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  useEffect(() => {
+    api.listAlbums({ year: 'all', q: '' })
+      .then((res) => setAllAlbums(res?.albums || []))
+      .catch(() => {});
+  }, [refreshKey]);
 
   const goHome = () => { location.hash = '#/'; };
   const openAlbum = useCallback((album) => {
@@ -41,6 +50,7 @@ export default function App() {
       <Header
         onHome={goHome}
         onNewAlbum={() => setShowNew(true)}
+        onOpenMap={() => setShowGlobalMap(true)}
         onAdmin={() => setShowAdmin(true)}
         adminRequired={config.adminRequired}
       />
@@ -51,6 +61,8 @@ export default function App() {
             <AlbumDetail
               key={albumId}
               albumId={albumId}
+              allAlbums={allAlbums}
+              onOpenAlbum={openAlbum}
               onBack={goHome}
               onLocked={(a) => setPinAlbum(a)}
               onDeleted={() => { setRefreshKey((k) => k + 1); goHome(); }}
@@ -85,6 +97,16 @@ export default function App() {
           />
         )}
         {showAdmin && <AdminModal onClose={() => setShowAdmin(false)} />}
+        {showGlobalMap && (
+          <VietnamMapModal
+            albums={allAlbums}
+            onOpenAlbum={(a) => {
+              setShowGlobalMap(false);
+              openAlbum(a);
+            }}
+            onClose={() => setShowGlobalMap(false)}
+          />
+        )}
       </Suspense>
     </div>
   );
