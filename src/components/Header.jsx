@@ -44,8 +44,9 @@ export default function Header({ onHome, onNewAlbum, onOpenMap, onAdmin, adminRe
             <button
               id="admin-btn"
               onClick={onAdmin}
-              className={`p-2 rounded-xl border bg-white transition shadow-xs text-sm ${hasKey ? 'border-emerald-200 text-emerald-600' : 'border-slate-200 text-slate-600 hover:text-rose-600'
-                }`}
+              className={`p-2 rounded-xl border bg-white transition shadow-xs text-sm ${
+                hasKey ? 'border-emerald-200 text-emerald-600' : 'border-slate-200 text-slate-600 hover:text-rose-600'
+              }`}
               title="Mã quản trị"
             >
               <i className={`fa-solid ${hasKey ? 'fa-user-shield' : 'fa-key'}`} />

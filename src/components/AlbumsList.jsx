@@ -103,10 +103,11 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                 key={p.name}
                 type="button"
                 onClick={() => setQ((prev) => (prev === p.name ? '' : p.name))}
-                className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex items-center gap-1.5 ${q === p.name
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex items-center gap-1.5 ${
+                  q === p.name
                     ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                     : 'bg-rose-50/80 text-rose-700 border-rose-200 hover:bg-rose-100'
-                  }`}
+                }`}
                 title={`Lọc các chuyến đi tại ${p.name}`}
               >
                 <span>📍 {p.name}</span>

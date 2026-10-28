@@ -12,7 +12,7 @@ class SoundFX {
     if (typeof window !== 'undefined') {
       const unlockAudio = () => {
         if (this.ctx && this.ctx.state === 'suspended') {
-          this.ctx.resume().catch(() => { });
+          this.ctx.resume().catch(() => {});
         }
       };
       window.addEventListener('pointerdown', unlockAudio, { passive: true });
@@ -39,7 +39,7 @@ class SoundFX {
       this.ctx = new AudioCtx();
     }
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => { });
+      this.ctx.resume().catch(() => {});
     }
   }
 
@@ -202,7 +202,7 @@ class SoundFX {
       const tick = () => {
         if (!this.bgmPlaying || !this.ctx) return;
         if (this.ctx.state === 'suspended') {
-          this.ctx.resume().catch(() => { });
+          this.ctx.resume().catch(() => {});
         }
         const now = this.ctx.currentTime;
         const item = sequence[this.stepIdx % sequence.length];

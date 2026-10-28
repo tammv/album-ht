@@ -217,10 +217,11 @@ export default function VietnamMapModal({ albums = [], currentAlbum = null, phot
                       x={spot.x < 160 ? -12 : 12}
                       y={4}
                       textAnchor={spot.x < 160 ? 'end' : 'start'}
-                      className={`text-[11px] transition ${spot.visited
+                      className={`text-[11px] transition ${
+                        spot.visited
                           ? 'font-bold fill-rose-800'
                           : 'font-medium fill-slate-500 opacity-75 group-hover:opacity-100'
-                        }`}
+                      }`}
                     >
                       {spot.name} {spot.visited ? `(${spot.albums.length})` : ''}
                     </text>
@@ -305,12 +306,13 @@ export default function VietnamMapModal({ albums = [], currentAlbum = null, phot
                       key={s.id}
                       type="button"
                       onClick={() => setSelectedSpotId(s.id)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${activeSpot?.id === s.id
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${
+                        activeSpot?.id === s.id
                           ? 'bg-rose-600 text-white shadow-xs'
                           : s.visited
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                        }`}
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
                     >
                       {s.visited && '📍 '}
                       {s.name}

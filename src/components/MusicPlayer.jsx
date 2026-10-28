@@ -104,12 +104,13 @@ export default function MusicPlayer({ autoStart = false, variant = 'dark', stopO
       <button
         type="button"
         onClick={togglePlay}
-        className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-2 transition shadow-xs ${playing
+        className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-2 transition shadow-xs ${
+          playing
             ? 'bg-gradient-to-r from-rose-600 to-amber-500 text-white border-rose-500 shadow-rose-200/50'
             : isLight
-              ? 'bg-rose-50/80 text-rose-700 border-rose-200 hover:bg-rose-100'
-              : 'bg-stone-900 text-stone-300 border-stone-700 hover:text-white hover:border-rose-500'
-          }`}
+            ? 'bg-rose-50/80 text-rose-700 border-rose-200 hover:bg-rose-100'
+            : 'bg-stone-900 text-stone-300 border-stone-700 hover:text-white hover:border-rose-500'
+        }`}
         title={playing ? 'Đang phát: Cho Tôi Đi Theo (Ngọt) — Nhấp để tạm dừng' : 'Bật nhạc: Cho Tôi Đi Theo (Ngọt)'}
       >
         <i className={`fa-solid ${playing ? 'fa-compact-disc animate-spin text-amber-200' : 'fa-music text-rose-500'}`} />
@@ -122,10 +123,11 @@ export default function MusicPlayer({ autoStart = false, variant = 'dark', stopO
       <button
         type="button"
         onClick={() => setShowVocalBox((v) => !v)}
-        className={`px-2.5 py-2 rounded-xl border text-xs flex items-center gap-1 transition ${isLight
+        className={`px-2.5 py-2 rounded-xl border text-xs flex items-center gap-1 transition ${
+          isLight
             ? 'bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border-slate-200'
             : 'bg-stone-900 hover:bg-stone-800 text-amber-300 border-stone-700'
-          }`}
+        }`}
         title="Chọn Bản Hát Gốc (Ngọt - MV YouTube) hoặc đổi nguồn nhạc"
       >
         <i className="fa-solid fa-sliders" />

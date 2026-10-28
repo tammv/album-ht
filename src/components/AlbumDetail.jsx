@@ -363,10 +363,11 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                   setDragOverIdx(null);
                 }}
                 style={{ animationDelay: `${Math.min(i, 12) * 30}ms`, transform: `rotate(${((i % 5) - 2) * 0.6}deg)` }}
-                className={`group relative bg-white p-2 pb-3 rounded-xl shadow-sm border transition-all duration-300 animate-fade-up ${dragOverIdx === i
+                className={`group relative bg-white p-2 pb-3 rounded-xl shadow-sm border transition-all duration-300 animate-fade-up ${
+                  dragOverIdx === i
                     ? 'border-2 border-rose-500 scale-105 ring-4 ring-rose-200/60 z-20'
                     : 'border-slate-200/80 hover:shadow-xl hover:z-10 hover:!rotate-0 hover:scale-[1.03]'
-                  } ${dragIdx === i ? 'opacity-40' : ''}`}
+                } ${dragIdx === i ? 'opacity-40' : ''}`}
               >
                 <button onClick={() => setModal({ lightbox: i })} className="block w-full aspect-square overflow-hidden rounded-lg bg-slate-100">
                   <LazyImage
