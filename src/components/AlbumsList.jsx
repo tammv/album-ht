@@ -187,7 +187,8 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                 key={a._id}
                 id={`album-card-${a._id}`}
                 onClick={() => onOpen(a)}
-                style={{ animationDelay: `${i * 50}ms` }}
+                onMouseEnter={() => api.prefetchAlbum(a)}
+                style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
                 className="group relative bg-white rounded-3xl p-4 border border-slate-200/80 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer animate-fade-up"
               >
                 <div className={`absolute -top-2 left-1/2 -translate-x-1/2 w-24 h-6 rotate-[-2deg] z-10 ${TAPES[i % 3]}`} />
@@ -203,9 +204,9 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                     </div>
                   ) : a.coverPhoto ? (
                     <LazyImage
-                      src={coverUrl(a.coverPhoto, 900)}
+                      src={coverUrl(a.coverPhoto)}
                       alt={a.title}
-                      priority={i < 3}
+                      priority={i < 6}
                       wrapperClassName="w-full h-full"
                       className="w-full h-full object-cover object-center group-hover:scale-[1.02] transition duration-700"
                     />

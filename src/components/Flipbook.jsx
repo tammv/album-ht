@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { coverUrl, optimized } from '../api.js';
+import { coverUrl, optimized, preloadImageUrl } from '../api.js';
 import { sfx } from '../sfx.js';
 import MusicPlayer from './MusicPlayer.jsx';
 
@@ -24,8 +24,9 @@ function PageContent({ page, side, layoutStyle }) {
           {/* Hiệu ứng gáy sách 3D bên trái */}
           <div className="absolute left-0 top-0 bottom-0 w-5 bg-gradient-to-r from-black/25 via-white/15 to-transparent z-10 pointer-events-none" />
           <img
-            src={coverUrl(page.album.coverPhoto, 1400)}
+            src={coverUrl(page.album.coverPhoto)}
             alt={page.album.title}
+            decoding="async"
             className="w-full h-full object-contain select-none"
             draggable={false}
           />
@@ -87,8 +88,9 @@ function PageContent({ page, side, layoutStyle }) {
       <div className="h-full w-full relative flex flex-col justify-between p-2 sm:p-4 bg-[#FAF6EE] overflow-hidden">
         <div className="relative flex-grow w-full h-full rounded-xl overflow-hidden bg-slate-100 shadow-md">
           <img
-            src={optimized(p.url, 1200)}
+            src={optimized(p.url)}
             alt={p.caption || ''}
+            decoding="async"
             className="w-full h-full object-cover select-none"
             draggable={false}
           />
@@ -114,17 +116,17 @@ function PageContent({ page, side, layoutStyle }) {
           {/* Ảnh lớn bên trái */}
           <div className="col-span-7 h-full flex flex-col">
             <div className="relative flex-grow rounded-xl overflow-hidden bg-white p-1.5 shadow-md">
-              <img src={optimized(p1.url, 800)} alt="" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <img src={optimized(p1.url)} alt="" decoding="async" className="w-full h-full object-cover rounded-lg" draggable={false} />
               {p1.caption && <p className="font-hand text-rose-700 text-xs sm:text-sm text-center mt-1 truncate">{p1.caption}</p>}
             </div>
           </div>
           {/* 2 ảnh nhỏ bên phải */}
           <div className="col-span-5 flex flex-col gap-2 h-full">
             <div className="relative h-1/2 rounded-xl overflow-hidden bg-white p-1.5 shadow-sm -rotate-1">
-              <img src={optimized(p2.url, 600)} alt="" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <img src={optimized(p2.url)} alt="" decoding="async" className="w-full h-full object-cover rounded-lg" draggable={false} />
             </div>
             <div className="relative h-1/2 rounded-xl overflow-hidden bg-white p-1.5 shadow-sm rotate-2">
-              <img src={optimized(p3.url, 600)} alt="" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <img src={optimized(p3.url)} alt="" decoding="async" className="w-full h-full object-cover rounded-lg" draggable={false} />
             </div>
           </div>
         </div>
@@ -148,8 +150,9 @@ function PageContent({ page, side, layoutStyle }) {
           <div className={`absolute -top-3 left-1/2 -translate-x-1/2 w-16 sm:w-24 h-5 sm:h-6 rotate-[-3deg] z-10 ${TAPES[pageIndex % 3]}`} />
           <div className="overflow-hidden rounded-sm bg-slate-100">
             <img
-              src={optimized(photo.url, 900)}
+              src={optimized(photo.url)}
               alt={photo.caption || ''}
+              decoding="async"
               className="max-h-[220px] sm:max-h-[340px] md:max-h-[380px] w-auto object-contain mx-auto select-none"
               draggable={false}
             />
@@ -289,18 +292,15 @@ export default function Flipbook({ album, photos = [], onClose }) {
   const isCoverView = currentStep?.mode === 'cover';
   const isSingleView = currentStep?.mode === 'single';
 
-  // Tải trước (Smart Preload) duy nhất bước kế tiếp (stepIndex + 1) để lật trang mượt mà mà không làm nặng mạng
+  // Tải trước (Smart Preload) 2 bước kế tiếp (stepIndex + 1 và stepIndex + 2) với URL đồng nhất (w_1080) để trúng 100% bộ nhớ đệm
   useEffect(() => {
-    const nextStep = steps[stepIndex + 1];
-    if (!nextStep) return;
-    const pagesToPreload = [nextStep.page, nextStep.left, nextStep.right].filter(Boolean);
-    pagesToPreload.forEach((p) => {
-      (p.photos || []).forEach((ph) => {
-        if (ph?.url) {
-          const img = new Image();
-          img.decoding = 'async';
-          img.src = optimized(ph.url, 1000);
-        }
+    const upcomingSteps = [steps[stepIndex + 1], steps[stepIndex + 2]].filter(Boolean);
+    upcomingSteps.forEach((st) => {
+      const pagesToPreload = [st.page, st.left, st.right].filter(Boolean);
+      pagesToPreload.forEach((p) => {
+        (p.photos || []).forEach((ph) => {
+          if (ph?.url) preloadImageUrl(optimized(ph.url));
+        });
       });
     });
   }, [stepIndex, steps]);

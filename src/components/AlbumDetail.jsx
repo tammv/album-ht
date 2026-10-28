@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { api, thumb } from '../api.js';
+import { api, coverUrl, isUnlocked, optimized, preloadImageUrl, thumb } from '../api.js';
 import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 import LazyImage from './LazyImage.jsx';
@@ -13,11 +13,17 @@ const FrameWorkshop = lazy(() => import('./FrameWorkshop.jsx'));
 const CoverStudio = lazy(() => import('./CoverStudio.jsx'));
 const VietnamMapModal = lazy(() => import('./VietnamMapModal.jsx'));
 
-const PAGE_BATCH_SIZE = 20;
+const PAGE_BATCH_SIZE = 24;
 
 export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBack, onLocked, onDeleted }) {
   const toast = useToast();
-  const [album, setAlbum] = useState(null);
+  const initialAlbum = useMemo(() => {
+    const found = allAlbums.find((x) => x._id === albumId);
+    if (!found) return null;
+    return { ...found, unlocked: !found.isLocked || isUnlocked(found._id) };
+  }, [allAlbums, albumId]);
+
+  const [album, setAlbum] = useState(initialAlbum);
   const [photos, setPhotos] = useState([]);
   const [tags, setTags] = useState([]);
   const [tag, setTag] = useState('');
@@ -28,15 +34,27 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
 
   // Chỉnh sửa thông tin Album
   const [editingAlbum, setEditingAlbum] = useState(false);
-  const [albumForm, setAlbumForm] = useState({ title: '', location: '', year: '', desc: '' });
+  const [albumForm, setAlbumForm] = useState({
+    title: initialAlbum?.title || '',
+    location: initialAlbum?.location || '',
+    year: initialAlbum?.year || new Date().getFullYear(),
+    desc: initialAlbum?.desc || '',
+  });
 
   // Kéo-thả sắp xếp thứ tự ảnh (Drag & Drop)
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (useCache = true) => {
     try {
-      const a = await api.getAlbum(albumId);
+      // Tải song song thông tin album và danh sách ảnh (loại bỏ waterfall tuần tự)
+      const [a, res] = await Promise.all([
+        api.getAlbum(albumId, useCache),
+        api.listPhotos(albumId, { ...(tag && { tag }), ...(q && { q }) }, useCache).catch((err) => {
+          if (err.status === 403) return null;
+          throw err;
+        }),
+      ]);
       setAlbum(a);
       setAlbumForm({
         title: a.title || '',
@@ -45,10 +63,16 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
         desc: a.desc || '',
       });
       if (!a.unlocked) return onLocked(a);
-      const res = await api.listPhotos(albumId, { ...(tag && { tag }), ...(q && { q }) });
-      setPhotos(res.photos);
-      setTags(res.tags);
-      setVisibleCount(PAGE_BATCH_SIZE);
+      if (res) {
+        setPhotos(res.photos);
+        setTags(res.tags);
+        setVisibleCount(PAGE_BATCH_SIZE);
+        // Nạp trước ảnh bìa và 4 bức ảnh đầu tiên ở độ phân giải chuẩn (1080px) để mở Lật Sách / Lightbox tức thì
+        if (a.coverPhoto) preloadImageUrl(coverUrl(a.coverPhoto));
+        res.photos.slice(0, 4).forEach((p) => {
+          if (p?.url) preloadImageUrl(optimized(p.url));
+        });
+      }
     } catch (e) {
       toast(e.message, 'error');
       if (e.status === 404) onBack();
@@ -383,9 +407,9 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
               >
                 <button onClick={() => setModal({ lightbox: i })} className="block w-full aspect-square overflow-hidden rounded-lg bg-slate-100">
                   <LazyImage
-                    src={thumb(p.url, 500)}
+                    src={thumb(p.url)}
                     alt={p.caption || 'Ảnh kỷ niệm'}
-                    priority={i < 5}
+                    priority={i < 8}
                     wrapperClassName="w-full h-full"
                     className="w-full h-full object-cover"
                   />

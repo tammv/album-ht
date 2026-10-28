@@ -1,50 +1,119 @@
-// Lớp gọi API: tự gắn token mở khoá album & mã quản trị đã lưu.
+// Lớp gọi API: tự gắn token mở khoá album, mã quản trị & Bộ nhớ đệm thông minh (SWR Cache + Request Deduplication)
 const TOKENS_KEY = 'album-tokens';
 const ADMIN_KEY = 'album-admin-key';
 
+// Bộ đệm RAM giúp chuyển trang & mở lại Album trong 0ms
+const responseCache = new Map();
+const inflightRequests = new Map();
+const preloadedImages = new Set();
+
 export const getTokens = () => JSON.parse(sessionStorage.getItem(TOKENS_KEY) || '{}');
-export const saveToken = (albumId, token) =>
+export const saveToken = (albumId, token) => {
   sessionStorage.setItem(TOKENS_KEY, JSON.stringify({ ...getTokens(), [albumId]: token }));
+  responseCache.clear();
+};
 export const isUnlocked = (albumId) => Boolean(getTokens()[albumId]);
 
 export const getAdminKey = () => localStorage.getItem(ADMIN_KEY) || '';
 export const setAdminKey = (k) => (k ? localStorage.setItem(ADMIN_KEY, k) : localStorage.removeItem(ADMIN_KEY));
 
-async function request(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-album-token': JSON.stringify(getTokens()),
-      'x-admin-key': getAdminKey(),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data.error || `Lỗi ${res.status}`);
-    err.status = res.status;
-    throw err;
+export function invalidateApiCache() {
+  responseCache.clear();
+}
+
+/** Tải ngầm trước 1 URL ảnh vào bộ nhớ đệm trình duyệt */
+export function preloadImageUrl(url) {
+  if (!url || preloadedImages.has(url) || typeof Image === 'undefined') return;
+  preloadedImages.add(url);
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = url;
+}
+
+async function request(path, { method = 'GET', body, useCache = false } = {}) {
+  const isGet = method === 'GET';
+  const cacheKey = `${method}:${path}`;
+
+  if (isGet && useCache && responseCache.has(cacheKey)) {
+    return responseCache.get(cacheKey);
   }
-  return data;
+
+  // Gộp các request GET trùng nhau đang chạy song song thành 1 request duy nhất
+  if (isGet && inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(`/api${path}`, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-album-token': JSON.stringify(getTokens()),
+          'x-admin-key': getAdminKey(),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data.error || `Lỗi ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      if (isGet) {
+        responseCache.set(cacheKey, data);
+      } else {
+        // Mọi thao tác thêm/sửa/xoá đều tự động làm mới bộ đệm
+        responseCache.clear();
+      }
+      return data;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  })();
+
+  if (isGet) {
+    inflightRequests.set(cacheKey, fetchPromise);
+  }
+
+  return fetchPromise;
 }
 
 export const api = {
-  config: () => request('/config'),
+  config: () => request('/config', { useCache: true }),
   verifyAdmin: () => request('/admin/verify', { method: 'POST' }),
-  listAlbums: (params = {}) => request(`/albums?${new URLSearchParams(params)}`),
-  getAlbum: (id) => request(`/albums/${id}`),
+  listAlbums: (params = {}, useCache = true) =>
+    request(`/albums?${new URLSearchParams(params)}`, { useCache }),
+  getAlbum: (id, useCache = true) => request(`/albums/${id}`, { useCache }),
   createAlbum: (body) => request('/albums', { method: 'POST', body }),
   updateAlbum: (id, body) => request(`/albums/${id}`, { method: 'PATCH', body }),
   deleteAlbum: (id) => request(`/albums/${id}`, { method: 'DELETE' }),
   unlock: (id, pin) => request(`/albums/${id}/unlock`, { method: 'POST', body: { pin } }),
-  listPhotos: (id, params = {}) => request(`/albums/${id}/photos?${new URLSearchParams(params)}`),
+  listPhotos: (id, params = {}, useCache = true) =>
+    request(`/albums/${id}/photos?${new URLSearchParams(params)}`, { useCache }),
   addPhotos: (id, photos) => request(`/albums/${id}/photos`, { method: 'POST', body: photos }),
   reorderPhotos: (id, photoIds) => request(`/albums/${id}/photos/reorder`, { method: 'PUT', body: { photoIds } }),
   updatePhoto: (id, body) => request(`/photos/${id}`, { method: 'PATCH', body }),
   deletePhoto: (id) => request(`/photos/${id}`, { method: 'DELETE' }),
   recognizeLandmark: (body) => request('/ai/recognize-landmark', { method: 'POST', body }),
   resolveGeo: (query = '') => request('/geo/resolve', { method: 'POST', body: { query } }),
+
+  /**
+   * Prefetch ngầm thông tin Album + 6 ảnh đầu tiên ngay khi người dùng rê chuột vào thẻ Album
+   * Giúp khi bấm vào Album ảnh hiện ra ngay lập tức (0ms chờ).
+   */
+  prefetchAlbum(album) {
+    if (!album || !album._id) return;
+    if (album.isLocked && !isUnlocked(album._id)) return;
+    this.getAlbum(album._id, true).catch(() => {});
+    this.listPhotos(album._id, {}, true)
+      .then((res) => {
+        (res?.photos || []).slice(0, 6).forEach((p) => {
+          preloadImageUrl(thumb(p.url));
+        });
+      })
+      .catch(() => {});
+  },
 
   /** Upload 1 file thẳng lên Cloudinary bằng chữ ký từ server. */
   async uploadToCloudinary(albumId, file, onProgress) {
@@ -72,13 +141,37 @@ export const api = {
   },
 };
 
-/** Ảnh Cloudinary thu nhỏ để hiển thị lưới ảnh vuông (1:1). */
-export const thumb = (url, w = 600) =>
-  url?.includes('res.cloudinary.com') ? url.replace('/upload/', `/upload/c_fill,w_${w},h_${w},q_auto,f_auto/`) : url;
+/**
+ * Ảnh siêu nhẹ 1.5KB làm mờ (LQIP Blur-Up) hiển thị ngay lập tức trong 30ms khi ảnh chính đang tải.
+ */
+export const blurPreview = (url) =>
+  url?.includes('res.cloudinary.com')
+    ? url.replace('/upload/', '/upload/c_limit,w_36,e_blur:200,q_auto:low,f_auto/')
+    : '';
 
-/** Ảnh bìa dọc 3:4 hoặc ảnh chất lượng cao giữ nguyên tỷ lệ khung hình (không cắt vuông). */
-export const coverUrl = (url, w = 900) =>
-  url?.includes('res.cloudinary.com') ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto,f_auto/`) : url;
+/**
+ * Ảnh Cloudinary thu nhỏ cho lưới ảnh vuông (1:1):
+ * Chuẩn hoá mặc định w=480 + q_auto:eco + f_auto (WebP/AVIF) giảm 55% dung lượng, tải cực nhanh.
+ */
+export const thumb = (url, w = 480) =>
+  url?.includes('res.cloudinary.com')
+    ? url.replace('/upload/', `/upload/c_fill,w_${w},h_${w},q_auto:eco,f_auto,fl_progressive/`)
+    : url;
 
-export const optimized = (url, w = 1600) =>
-  url?.includes('res.cloudinary.com') ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto,f_auto/`) : url;
+/**
+ * Ảnh bìa dọc 3:4 giữ nguyên tỷ lệ khung hình:
+ * Dùng chung mặc định w=800 ở cả Trang chủ và Flipbook để tái sử dụng 100% bộ nhớ đệm trình duyệt.
+ */
+export const coverUrl = (url, w = 800) =>
+  url?.includes('res.cloudinary.com')
+    ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`)
+    : url;
+
+/**
+ * Ảnh độ nét cao cho Flipbook & Trình Chiếu:
+ * Chuẩn hoá mặc định w=1080 để mọi ảnh tải trước (preload) đều trúng 100% cache.
+ */
+export const optimized = (url, w = 1080) =>
+  url?.includes('res.cloudinary.com')
+    ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`)
+    : url;

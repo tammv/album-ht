@@ -16,6 +16,7 @@ const albumSchema = new Schema(
   { timestamps: true }
 );
 albumSchema.index({ title: 'text', location: 'text', desc: 'text' });
+albumSchema.index({ year: -1, createdAt: -1 });
 
 const photoSchema = new Schema(
   {
@@ -35,6 +36,7 @@ const photoSchema = new Schema(
   },
   { timestamps: true }
 );
+photoSchema.index({ album: 1, order: 1, createdAt: 1 });
 
 export const Album = models.Album || model('Album', albumSchema);
 export const Photo = models.Photo || model('Photo', photoSchema);

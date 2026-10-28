@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, optimized } from '../api.js';
+import { api, optimized, preloadImageUrl, thumb } from '../api.js';
 import { useToast } from './Toast.jsx';
 import MusicPlayer from './MusicPlayer.jsx';
 
@@ -47,10 +47,14 @@ export default function Lightbox({ photos = [], start = 0, autoPlay = false, tit
     };
   }, [next, prev, onClose, editing]);
 
-  // Preload ảnh kế tiếp
+  // Preload 2 ảnh kế tiếp và 1 ảnh trước đó với cùng độ phân giải chuẩn (1080px) để chuyển ảnh tức thì
   useEffect(() => {
-    const nextPhoto = photos[(i + 1) % photos.length];
-    if (nextPhoto) new Image().src = optimized(nextPhoto.url);
+    if (!photos.length) return;
+    const indices = [(i + 1) % photos.length, (i + 2) % photos.length, (i - 1 + photos.length) % photos.length];
+    indices.forEach((idx) => {
+      const ph = photos[idx];
+      if (ph?.url) preloadImageUrl(optimized(ph.url));
+    });
   }, [i, photos]);
 
   if (!p) return null;
@@ -161,8 +165,15 @@ export default function Lightbox({ photos = [], start = 0, autoPlay = false, tit
         <div className="text-center w-full max-h-[78vh] flex flex-col items-center justify-center">
           <img
             key={p._id}
-            src={optimized(p.url, 1600)}
+            src={optimized(p.url)}
             alt={p.caption || 'Ảnh kỷ niệm'}
+            decoding="async"
+            style={{
+              backgroundImage: `url("${thumb(p.url)}")`,
+              backgroundSize: 'contain',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+            }}
             className="max-h-[64vh] sm:max-h-[72vh] max-w-[92vw] rounded-2xl shadow-2xl mx-auto object-contain transition-all duration-300"
           />
 
