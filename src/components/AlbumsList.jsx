@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, thumb, isUnlocked } from '../api.js';
+import { api, coverUrl, isUnlocked } from '../api.js';
 import { useToast } from './Toast.jsx';
 
 const TAPES = ['washi-tape-strip', 'washi-tape-rose', 'washi-tape-teal'];
@@ -111,31 +111,43 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                 style={{ animationDelay: `${i * 50}ms` }}
                 className="group relative bg-white rounded-3xl p-4 border border-slate-200/80 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer animate-fade-up"
               >
-                <div className={`absolute -top-2 left-1/2 -translate-x-1/2 w-24 h-6 rotate-[-3deg] z-10 ${TAPES[i % 3]}`} />
-                <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-gradient-to-br from-rose-100 to-amber-50">
+                <div className={`absolute -top-2 left-1/2 -translate-x-1/2 w-24 h-6 rotate-[-2deg] z-10 ${TAPES[i % 3]}`} />
+                {/* Khung bìa sách poster dọc chuẩn 3:4 — giữ nguyên vẹn 100% bố cục poster */}
+                <div className="relative aspect-[3/4] rounded-r-2xl rounded-l-md overflow-hidden bg-[#FAF6EE] shadow-md border border-stone-200/80 border-l-[6px] border-l-amber-900/35 group-hover:shadow-2xl transition duration-500">
+                  {/* Hiệu ứng nếp gấp gáy sách 3D chân thực */}
+                  <div className="absolute left-0 top-0 bottom-0 w-3.5 bg-gradient-to-r from-black/20 via-white/10 to-transparent z-10 pointer-events-none" />
+
                   {locked ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-rose-900 to-slate-900 text-white">
                       <i className="fa-solid fa-lock text-4xl text-amber-300 mb-2" />
                       <span className="text-xs text-rose-200">Góc kỷ niệm bí mật</span>
                     </div>
                   ) : a.coverPhoto ? (
-                    <img src={thumb(a.coverPhoto, 800)} alt={a.title} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-700" />
+                    <img
+                      src={coverUrl(a.coverPhoto, 900)}
+                      alt={a.title}
+                      loading="lazy"
+                      className="w-full h-full object-cover object-center group-hover:scale-[1.02] transition duration-700"
+                    />
                   ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-rose-300 text-5xl">
-                      <i className="fa-regular fa-images" />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-300">
+                      <i className="fa-regular fa-images text-5xl mb-2" />
+                      <span className="text-xs text-slate-400 font-serif">Chưa có bìa</span>
                     </div>
                   )}
-                  <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-white/90 backdrop-blur text-xs font-bold text-rose-700 shadow">
-                    {a.year}
-                  </span>
                 </div>
-                <div className="pt-4 px-1 space-y-1">
-                  <h2 className="font-serif font-bold text-lg text-slate-900 group-hover:text-rose-700 transition line-clamp-1">{a.title}</h2>
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span><i className="fa-solid fa-location-dot text-rose-500 mr-1" />{a.location}</span>
-                    <span><i className="fa-regular fa-images mr-1" />{a.photoCount} ảnh</span>
+                <div className="pt-3.5 px-1 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-serif font-bold text-lg text-slate-900 group-hover:text-rose-700 transition line-clamp-1">{a.title}</h2>
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200/80 text-[11px] font-bold flex-shrink-0">
+                      {a.year}
+                    </span>
                   </div>
-                  {a.desc && <p className="text-xs text-slate-500 italic line-clamp-2 pt-1">{a.desc}</p>}
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot text-rose-500" />{a.location || 'Việt Nam'}</span>
+                    <span className="flex-shrink-0"><i className="fa-regular fa-images mr-1" />{a.photoCount} ảnh</span>
+                  </div>
+                  {a.desc && <p className="text-xs text-slate-500 italic line-clamp-2 pt-0.5">{a.desc}</p>}
                 </div>
               </article>
             );

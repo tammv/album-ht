@@ -71,6 +71,28 @@ app.post('/api/ai/recognize-landmark', h(async (req, res) => {
   res.json(result);
 }));
 
+// Sinh tranh AI cho Bìa Photobook (Proxy nội bộ sạch 100%, vẽ cảnh quan tràn viền không khung phụ & không chữ rác)
+app.get('/api/ai/art', h(async (req, res) => {
+  const { prompt, seed } = req.query;
+  const s = seed || Math.floor(Math.random() * 999999);
+  // Loại bỏ từ "poster" để AI không tự vẽ khung viền phụ hay chữ tiêu đề giả bên trong tranh
+  const cleanBase = String(prompt || 'scenic Vietnam landscape')
+    .replace(/\b(travel\s+poster|poster\s+art|poster\s+illustration|poster|typography|text|letters|words)\b/gi, 'scenic landscape painting')
+    .trim();
+  const fullPrompt = `${cleanBase}, full-bleed scenic landscape painting, modern gouache and watercolor illustration, natural warm lighting, edge-to-edge composition filling entire canvas, borderless, frameless, pure scenery without any text or signage`;
+
+  const targetUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=768&height=960&model=flux&nologo=true&enhance=false&seed=${s}`;
+
+  const upstream = await fetch(targetUrl);
+  if (!upstream.ok) {
+    throw new HttpError(502, 'AI Art Studio đang bận, vui lòng thử lại sau giây lát');
+  }
+  const buffer = await upstream.arrayBuffer();
+  res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(Buffer.from(buffer));
+}));
+
 // ---------- Albums ----------
 app.get('/api/albums', h(async (req, res) => {
   const { q, year } = req.query;

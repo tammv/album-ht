@@ -70,8 +70,13 @@ export const api = {
   },
 };
 
-/** Ảnh Cloudinary thu nhỏ để hiển thị lưới cho nhanh. */
+/** Ảnh Cloudinary thu nhỏ để hiển thị lưới ảnh vuông (1:1). */
 export const thumb = (url, w = 600) =>
   url?.includes('res.cloudinary.com') ? url.replace('/upload/', `/upload/c_fill,w_${w},h_${w},q_auto,f_auto/`) : url;
+
+/** Ảnh bìa dọc 3:4 hoặc ảnh chất lượng cao giữ nguyên tỷ lệ khung hình (không cắt vuông). */
+export const coverUrl = (url, w = 900) =>
+  url?.includes('res.cloudinary.com') ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto,f_auto/`) : url;
+
 export const optimized = (url, w = 1600) =>
   url?.includes('res.cloudinary.com') ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto,f_auto/`) : url;

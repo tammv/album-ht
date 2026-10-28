@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { optimized } from '../api.js';
+import { coverUrl, optimized } from '../api.js';
 import { sfx } from '../sfx.js';
 
 const TAPES = ['washi-tape-strip', 'washi-tape-rose', 'washi-tape-teal'];
 
 /**
  * Hiển thị một trang sách với nhiều kiểu bố cục:
- * - 'cover': Bìa sách phong cách du lịch
+ * - 'cover': Bìa sách phong cách du lịch (ưu tiên hiển thị poster bìa dọc nếu đã tạo)
  * - 'single_bleed': 1 ảnh tràn viền sang trọng (như Hình 2 & 3)
  * - 'polaroid': 1 ảnh scrapbook dán băng keo washi
  * - 'collage_3': 3 ảnh nghệ thuật (1 ảnh to + 2 ảnh nhỏ như Hình 5)
@@ -18,6 +18,18 @@ function PageContent({ page, side, layoutStyle }) {
 
   // Trang Bìa Cuốn Sách
   if (page.type === 'cover') {
+    if (page.album?.coverPhoto) {
+      return (
+        <div className="h-full w-full bg-[#FAF6EE] relative overflow-hidden flex items-center justify-center">
+          <img
+            src={coverUrl(page.album.coverPhoto, 1200)}
+            alt={page.album.title}
+            className="w-full h-full object-cover select-none"
+            draggable={false}
+          />
+        </div>
+      );
+    }
     return (
       <div className="h-full w-full flex flex-col items-center justify-center text-center p-4 sm:p-8 bg-[#FAF6EE] relative overflow-hidden">
         <div className="absolute inset-0 border-8 sm:border-[12px] border-amber-900/10 pointer-events-none" />
