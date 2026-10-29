@@ -66,6 +66,7 @@ const LazyImage = memo(function LazyImage({
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
+          referrerPolicy="no-referrer"
           fetchPriority={priority ? 'high' : 'auto'}
           draggable={draggable}
           onLoad={() => setLoaded(true)}

@@ -97,6 +97,8 @@ export const api = {
   deletePhoto: (id) => request(`/photos/${id}`, { method: 'DELETE' }),
   recognizeLandmark: (body) => request('/ai/recognize-landmark', { method: 'POST', body }),
   resolveGeo: (query = '') => request('/geo/resolve', { method: 'POST', body: { query } }),
+  resolvePhotoLinks: (rawInput = '') =>
+    request('/photos/resolve-link', { method: 'POST', body: { rawInput } }),
 
   /**
    * Prefetch ngầm thông tin Album + 6 ảnh đầu tiên ngay khi người dùng rê chuột vào thẻ Album
@@ -144,34 +146,58 @@ export const api = {
 /**
  * Ảnh siêu nhẹ 1.5KB làm mờ (LQIP Blur-Up) hiển thị ngay lập tức trong 30ms khi ảnh chính đang tải.
  */
-export const blurPreview = (url) =>
-  url?.includes('res.cloudinary.com')
-    ? url.replace('/upload/', '/upload/c_limit,w_36,e_blur:200,q_auto:low,f_auto/')
-    : '';
+export const blurPreview = (url) => {
+  if (!url) return '';
+  if (url.includes('res.cloudinary.com')) {
+    return url.replace('/upload/', '/upload/c_limit,w_36,e_blur:200,q_auto:low,f_auto/');
+  }
+  if (url.includes('lh3.googleusercontent.com')) {
+    return url.replace(/=w\d+(-h\d+)?$/, '') + '=w48';
+  }
+  return '';
+};
 
 /**
- * Ảnh Cloudinary thu nhỏ cho lưới ảnh vuông (1:1):
+ * Ảnh Cloudinary / Google Drive / Google Photos thu nhỏ cho lưới ảnh vuông (1:1):
  * Chuẩn hoá mặc định w=480 + q_auto:eco + f_auto (WebP/AVIF) giảm 55% dung lượng, tải cực nhanh.
  */
-export const thumb = (url, w = 480) =>
-  url?.includes('res.cloudinary.com')
-    ? url.replace('/upload/', `/upload/c_fill,w_${w},h_${w},q_auto:eco,f_auto,fl_progressive/`)
-    : url;
+export const thumb = (url, w = 480) => {
+  if (!url) return '';
+  if (url.includes('res.cloudinary.com')) {
+    return url.replace('/upload/', `/upload/c_fill,w_${w},h_${w},q_auto:eco,f_auto,fl_progressive/`);
+  }
+  if (url.includes('lh3.googleusercontent.com')) {
+    return url.replace(/=w\d+(-h\d+)?$/, '') + `=w${w}`;
+  }
+  return url;
+};
 
 /**
  * Ảnh bìa dọc 3:4 giữ nguyên tỷ lệ khung hình:
  * Dùng chung mặc định w=800 ở cả Trang chủ và Flipbook để tái sử dụng 100% bộ nhớ đệm trình duyệt.
  */
-export const coverUrl = (url, w = 800) =>
-  url?.includes('res.cloudinary.com')
-    ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`)
-    : url;
+export const coverUrl = (url, w = 800) => {
+  if (!url) return '';
+  if (url.includes('res.cloudinary.com')) {
+    return url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`);
+  }
+  if (url.includes('lh3.googleusercontent.com')) {
+    return url.replace(/=w\d+(-h\d+)?$/, '') + `=w${w}`;
+  }
+  return url;
+};
 
 /**
  * Ảnh độ nét cao cho Flipbook & Trình Chiếu:
  * Chuẩn hoá mặc định w=1080 để mọi ảnh tải trước (preload) đều trúng 100% cache.
  */
-export const optimized = (url, w = 1080) =>
-  url?.includes('res.cloudinary.com')
-    ? url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`)
-    : url;
+export const optimized = (url, w = 1080) => {
+  if (!url) return '';
+  if (url.includes('res.cloudinary.com')) {
+    return url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`);
+  }
+  if (url.includes('lh3.googleusercontent.com')) {
+    return url.replace(/=w\d+(-h\d+)?$/, '') + `=w${w}`;
+  }
+  return url;
+};

@@ -1,9 +1,61 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '../api.js';
 import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 
 const MAX_MB = 10; // Giới hạn ảnh của Cloudinary free
+const MAX_RAW_MOBILE_MB = 35; // Cho phép chọn ảnh gốc tới 35MB từ điện thoại (sẽ tự động nén xuống <8MB)
+
+function isImageFile(file) {
+  if (!file) return false;
+  if (file.type && file.type.startsWith('image/')) return true;
+  return /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name || '');
+}
+
+/**
+ * Tự động nén thông minh trên trình duyệt nếu ảnh chụp từ điện thoại (iPhone 48MP / Samsung 50MP) nặng > 8.5MB.
+ * Được gọi SAU KHI đã đọc EXIF để bảo toàn 100% Ngày chụp & Tọa độ GPS gốc.
+ */
+async function compressMobileImageIfNeeded(file) {
+  if (file.size <= 8.5 * 1024 * 1024) return file;
+  try {
+    const bitmapUrl = URL.createObjectURL(file);
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = bitmapUrl;
+    });
+    URL.revokeObjectURL(bitmapUrl);
+
+    const maxDim = 2800;
+    let { width, height } = img;
+    if (width > maxDim || height > maxDim) {
+      if (width >= height) {
+        height = Math.round((height * maxDim) / width);
+        width = maxDim;
+      } else {
+        width = Math.round((width * maxDim) / height);
+        height = maxDim;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+    if (blob && blob.size < file.size) {
+      const cleanName = (file.name || 'photo.jpg').replace(/\.[^.]+$/, '') + '.jpg';
+      return new File([blob], cleanName, { type: 'image/jpeg', lastModified: file.lastModified });
+    }
+  } catch {
+    /* Nếu trình duyệt không vẽ được (VD: HEIC trên một số máy PC cũ), giữ nguyên file gốc */
+  }
+  return file;
+}
 
 // Tọa độ các địa danh phổ biến tại Việt Nam (Dùng làm bộ đệm tức thì nếu mạng chậm)
 const KNOWN_VN_COORDS = [
@@ -175,7 +227,9 @@ function parseTiffExif(view, tiffStart, fallbackDate) {
 
 export default function UploadModal({ albumId, onClose, onUploaded }) {
   const toast = useToast();
-  const [files, setFiles] = useState([]); // {file, preview, progress, status, takenAt, gps}
+  const galleryInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const [files, setFiles] = useState([]); // {file, preview, progress, status, takenAt, gps, compressed}
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
   const [takenAt, setTakenAt] = useState('');
@@ -184,6 +238,8 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   const [coords, setCoords] = useState(null); // { lat, lng }
   const [pinging, setPinging] = useState(false);
   const [url, setUrl] = useState('');
+  const [resolvingLink, setResolvingLink] = useState(false);
+  const [resolvedLinks, setResolvedLinks] = useState([]); // [{ url, source, title }]
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
 
@@ -408,7 +464,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             toast(`📍 Đã lấy tọa độ từ link Google Maps: ${res.lat}, ${res.lng}`);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     } else if (!val.startsWith('http')) {
       setLocationName(val);
       // Tự động dò nhanh danh thắng Việt Nam nếu khớp
@@ -447,31 +503,44 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   };
 
   const addFiles = async (list) => {
-    const arr = [...list].filter((f) => {
-      if (!f.type.startsWith('image/')) return false;
-      if (f.size > MAX_MB * 1024 * 1024) {
-        toast(`${f.name} vượt quá ${MAX_MB}MB`, 'error');
+    const arr = [...(list || [])].filter((f) => {
+      if (!isImageFile(f)) return false;
+      if (f.size > MAX_RAW_MOBILE_MB * 1024 * 1024) {
+        toast(`${f.name} vượt quá ${MAX_RAW_MOBILE_MB}MB`, 'error');
         return false;
       }
       return true;
     });
 
+    if (!arr.length) return;
+
     const parsedItems = await Promise.all(
-      arr.map(async (file) => {
-        const meta = await extractExifFromFile(file);
+      arr.map(async (rawFile) => {
+        // 1. Đọc EXIF (Ngày chụp + GPS) từ file gốc trước khi nén
+        const meta = await extractExifFromFile(rawFile);
+        // 2. Nếu ảnh điện thoại > 8.5MB, tự động nén thông minh xuống < 8MB để không bị lỗi giới hạn 10MB
+        const processedFile = await compressMobileImageIfNeeded(rawFile);
+        if (processedFile.size > MAX_MB * 1024 * 1024) {
+          toast(`Ảnh ${rawFile.name} vẫn lớn hơn ${MAX_MB}MB sau khi tối ưu`, 'error');
+          return null;
+        }
         return {
-          file,
-          preview: URL.createObjectURL(file),
+          file: processedFile,
+          preview: URL.createObjectURL(processedFile),
           progress: 0,
           status: 'idle',
           takenAt: meta.takenAt,
           gps: meta.gps,
+          compressed: processedFile !== rawFile,
         };
       })
     );
 
-    const firstWithDate = parsedItems.find((x) => x.takenAt);
-    const firstWithGps = parsedItems.find((x) => x.gps);
+    const validItems = parsedItems.filter(Boolean);
+    if (!validItems.length) return;
+
+    const firstWithDate = validItems.find((x) => x.takenAt);
+    const firstWithGps = validItems.find((x) => x.gps);
 
     if (firstWithDate && !takenAt) {
       setTakenAt(firstWithDate.takenAt);
@@ -486,7 +555,41 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
       toast(`📸 Đã tự động đọc ngày chụp từ ảnh: ${firstWithDate.takenAt}`);
     }
 
-    setFiles((cur) => [...cur, ...parsedItems]);
+    setFiles((cur) => [...cur, ...validItems]);
+  };
+
+  // Dán trực tiếp ảnh hoặc đường link đã copy từ Bộ nhớ tạm (AirDrop / Bộ sưu tập iOS / Google Photos / Zalo)
+  const handleClipboardPaste = async () => {
+    try {
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        const imageBlobs = [];
+        for (const item of items) {
+          const imgType = item.types.find((t) => t.startsWith('image/'));
+          if (imgType) {
+            const blob = await item.getType(imgType);
+            const ext = imgType.split('/')[1] || 'jpg';
+            imageBlobs.push(new File([blob], `clipboard-${Date.now()}.${ext}`, { type: imgType }));
+          }
+        }
+        if (imageBlobs.length > 0) {
+          await addFiles(imageBlobs);
+          toast(`📋 Đã dán ${imageBlobs.length} ảnh từ bộ nhớ tạm!`);
+          return;
+        }
+      }
+      if (navigator.clipboard?.readText) {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (/^https?:\/\//i.test(text)) {
+          setUrl(text);
+          await previewShareLinks(text);
+          return;
+        }
+      }
+      toast('Bộ nhớ tạm chưa có ảnh hoặc đường link nào. Bạn hãy Copy ảnh hoặc Link trước nhé!', 'error');
+    } catch {
+      toast('Hãy chạm giữ vào ô Link bên dưới để Dán (Paste) nhé!', 'error');
+    }
   };
 
   const patch = (i, v) => setFiles((cur) => cur.map((f, j) => (j === i ? { ...f, ...v } : f)));
@@ -536,31 +639,74 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
     setBusy(false);
   };
 
-  const addByUrl = async () => {
-    if (!/^https?:\/\//.test(url)) return toast('URL không hợp lệ', 'error');
+  // Quét & giải mã Link Google Drive (1 ảnh hoặc cả thư mục), Android Share (Google Photos / Quick Share), Apple iCloud / AirDrop
+  const previewShareLinks = async (inputStr = url) => {
+    const raw = String(inputStr || '').trim();
+    if (!/^https?:\/\//im.test(raw)) {
+      return toast('Vui lòng dán đường link hợp lệ (Google Drive, Google Photos, iCloud, URL ảnh...)', 'error');
+    }
+    setResolvingLink(true);
     try {
-      await api.addPhotos(albumId, [
-        {
-          url,
-          caption,
-          tags,
-          takenAt,
-          locationName,
-          mapUrl: getComputedMapUrl(),
-          lat: coords?.lat,
-          lng: coords?.lng,
-        },
-      ]);
-      toast('Đã thêm ảnh từ URL');
-      setUrl('');
-      onUploaded();
+      const res = await api.resolvePhotoLinks(raw);
+      const list = res?.photos || [];
+      setResolvedLinks(list);
+      if (list.length > 0) {
+        toast(`✨ Tìm thấy ${list.length} ảnh từ ${list[0].source || 'đường link'}!`);
+      }
+      return list;
     } catch (e) {
       toast(e.message, 'error');
+      return [];
+    } finally {
+      setResolvingLink(false);
+    }
+  };
+
+  const addByUrl = async () => {
+    let itemsToSave = resolvedLinks;
+    if (!itemsToSave.length) {
+      if (!/^https?:\/\//im.test(url)) return toast('Vui lòng dán đường link hợp lệ', 'error');
+      itemsToSave = await previewShareLinks(url);
+    }
+    if (!itemsToSave.length) return;
+
+    setBusy(true);
+    try {
+      const payload = itemsToSave.map((item) => ({
+        url: item.url,
+        caption: caption || item.title || '',
+        tags,
+        takenAt,
+        locationName,
+        mapUrl: getComputedMapUrl(),
+        lat: coords?.lat,
+        lng: coords?.lng,
+      }));
+      await api.addPhotos(albumId, payload);
+      toast(`Đã thêm ${payload.length} ảnh từ ${itemsToSave[0].source || 'liên kết'} 💕`);
+      setUrl('');
+      setResolvedLinks([]);
+      onUploaded();
+      if (!files.length) onClose();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => !busy && e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => !busy && e.target === e.currentTarget && onClose()}
+      onPaste={(e) => {
+        const pastedFiles = e.clipboardData?.files;
+        if (pastedFiles?.length) {
+          addFiles(pastedFiles);
+          toast(`📋 Đã dán ${pastedFiles.length} ảnh!`);
+        }
+      }}
+    >
       <div className="modal-card max-w-xl space-y-4">
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
           <h3 className="font-serif font-bold text-lg text-slate-900 flex items-center gap-2">
@@ -571,9 +717,71 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           </button>
         </div>
 
-        {/* Khung kéo thả */}
-        <label
+        {/* Cụm nút Chọn Nhanh từ Bộ Sưu Tập Điện Thoại (iOS / Android / AirDrop) & Máy Ảnh */}
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => galleryInputRef.current?.click()}
+            className="flex flex-col items-center justify-center gap-1 p-3 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white shadow-md shadow-rose-200 transition active:scale-95"
+          >
+            <i className="fa-solid fa-photo-film text-lg" />
+            <span className="text-[11px] font-bold leading-tight text-center">Mở Bộ Sưu Tập</span>
+            <span className="text-[9px] text-rose-100 leading-none">Chọn nhiều ảnh / AirDrop</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            className="flex flex-col items-center justify-center gap-1 p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 transition active:scale-95"
+          >
+            <i className="fa-solid fa-camera text-lg text-amber-600" />
+            <span className="text-[11px] font-bold leading-tight text-center">Chụp Ảnh Mới</span>
+            <span className="text-[9px] text-amber-700/80 leading-none">Mở Camera điện thoại</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleClipboardPaste}
+            className="flex flex-col items-center justify-center gap-1 p-3 rounded-2xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200/80 transition active:scale-95"
+          >
+            <i className="fa-solid fa-paste text-lg text-sky-600" />
+            <span className="text-[11px] font-bold leading-tight text-center">Dán Ảnh / Link</span>
+            <span className="text-[9px] text-sky-700/80 leading-none">Từ Copy / AirDrop</span>
+          </button>
+
+          {/* Input ẩn mở Bộ Sưu Tập Ảnh (iPhone Photos / Android Gallery, hỗ trợ cả HEIC/HEIF) */}
+          <input
+            ref={galleryInputRef}
+            id="file-input"
+            type="file"
+            multiple
+            accept="image/*,.heic,.heif,.avif"
+            className="hidden"
+            onChange={(e) => {
+              addFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+
+          {/* Input ẩn mở trực tiếp Camera sau của điện thoại */}
+          <input
+            ref={cameraInputRef}
+            id="camera-input"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              addFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+        </div>
+
+        {/* Khung kéo thả (Hỗ trợ cả PC lẫn chạm trên điện thoại) */}
+        <div
           id="drop-zone"
+          onClick={() => galleryInputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
             setDrag(true);
@@ -584,26 +792,17 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             setDrag(false);
             addFiles(e.dataTransfer.files);
           }}
-          className={`block border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition ${drag ? 'border-rose-500 bg-rose-50' : 'border-rose-300 hover:border-rose-500 bg-rose-50/40'
+          className={`block border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition ${drag ? 'border-rose-500 bg-rose-50' : 'border-rose-300 hover:border-rose-500 bg-rose-50/40'
             }`}
         >
-          <i className="fa-solid fa-images text-3xl text-rose-400 mb-2" />
-          <p className="text-xs font-semibold text-slate-700">Bấm để chọn ảnh hoặc kéo thả ảnh vào đây</p>
-          <p className="text-[10px] text-slate-400 mt-1">
-            Tự động đọc Ngày chụp & GPS (EXIF) • tối đa {MAX_MB}MB/ảnh
+          <p className="text-xs font-semibold text-slate-700">
+            <i className="fa-solid fa-cloud-arrow-up text-rose-500 mr-1.5" />
+            Chạm để mở Thư viện Ảnh điện thoại hoặc kéo thả ảnh vào đây
           </p>
-          <input
-            id="file-input"
-            type="file"
-            multiple
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              addFiles(e.target.files);
-              e.target.value = '';
-            }}
-          />
-        </label>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            Hỗ trợ JPG, PNG, WEBP, HEIC (iPhone/AirDrop) • Tự động đọc Ngày chụp & GPS • Tự nén nếu ảnh &gt; 10MB
+          </p>
+        </div>
 
         {/* Danh sách ảnh đã chọn */}
         {files.length > 0 && (
@@ -787,22 +986,102 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           {busy ? 'Đang tải lên...' : `Tải lên ${files.filter((f) => f.status !== 'done').length || ''} ảnh`}
         </button>
 
-        {/* Hoặc thêm bằng URL */}
-        <div className="space-y-2 text-xs pt-2 border-t border-slate-100">
-          <label className="block font-semibold text-slate-700">Hoặc dán liên kết URL ảnh:</label>
-          <div className="flex gap-2">
-            <input
-              id="photo-url-input"
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://..."
-              className="input text-xs"
-            />
-            <button onClick={addByUrl} className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium">
-              Thêm
-            </button>
+        {/* Thêm bằng Link Google Drive, Android Share (Google Photos / Quick Share), Apple iCloud / AirDrop */}
+        <div className="bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200/80 space-y-2.5 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <label className="font-bold text-slate-800 flex items-center gap-1.5">
+              <i className="fa-solid fa-share-nodes text-rose-600" />
+              <span>Thêm bằng Link Google Drive • Android Share • Apple iCloud</span>
+            </label>
+            <div className="flex items-center gap-1 text-[10px] font-semibold">
+              <span className="px-2 py-0.5 rounded-full bg-white text-emerald-700 border border-emerald-200">
+                <i className="fa-brands fa-google-drive mr-1" />Drive / Thư mục
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-white text-sky-700 border border-sky-200">
+                <i className="fa-brands fa-android mr-1" />Google Photos
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-white text-slate-700 border border-slate-200">
+                <i className="fa-brands fa-apple mr-1" />iCloud / AirDrop
+              </span>
+            </div>
           </div>
+
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Dán link <b>Google Drive</b> (1 ảnh hoặc cả thư mục công khai), link <b>Google Photos / Quick Share</b> (Android), <b>iCloud Photos</b> (iPhone) hoặc nhiều link ảnh (mỗi dòng 1 link):
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <textarea
+              id="photo-url-input"
+              rows={2}
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                if (resolvedLinks.length) setResolvedLinks([]);
+              }}
+              placeholder="Dán link drive.google.com/..., photos.app.goo.gl/..., share.icloud.com/photos/... hoặc https://..."
+              className="input text-xs resize-none flex-grow"
+            />
+            <div className="flex sm:flex-col gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => previewShareLinks(url)}
+                disabled={resolvingLink || busy || !url.trim()}
+                className="flex-1 px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition disabled:opacity-50"
+              >
+                <i className={`fa-solid ${resolvingLink ? 'fa-spinner fa-spin' : 'fa-magnifying-glass'}`} />
+                <span>{resolvingLink ? 'Đang quét...' : 'Quét Link'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={addByUrl}
+                disabled={resolvingLink || busy || (!url.trim() && !resolvedLinks.length)}
+                className="flex-1 px-3.5 py-1.5 bg-slate-900 hover:bg-rose-600 text-white rounded-xl font-semibold flex items-center justify-center gap-1.5 transition disabled:opacity-50"
+              >
+                <i className="fa-solid fa-plus" />
+                <span>{resolvedLinks.length > 0 ? `Thêm (${resolvedLinks.length})` : 'Thêm Ngay'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Hiển thị lưới xem trước các ảnh quét được từ Link Drive / Google Photos / iCloud */}
+          {resolvedLinks.length > 0 && (
+            <div className="pt-1 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-emerald-800 font-semibold">
+                <span>
+                  <i className="fa-solid fa-circle-check text-emerald-600 mr-1" />
+                  Đã nhận diện {resolvedLinks.length} ảnh từ <b>{resolvedLinks[0]?.source}</b>:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setResolvedLinks([])}
+                  className="text-slate-400 hover:text-rose-600 text-[10px]"
+                >
+                  Xoá danh sách
+                </button>
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-36 overflow-y-auto p-1 bg-white rounded-xl border border-amber-200/60">
+                {resolvedLinks.map((item, idx) => (
+                  <div key={item.url + idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
+                    <img
+                      src={item.url}
+                      alt={item.title || ''}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setResolvedLinks((prev) => prev.filter((_, j) => j !== idx))}
+                      className="absolute top-1 right-1 w-4 h-4 rounded-full bg-black/65 text-white text-[9px] flex items-center justify-center"
+                      title="Bỏ ảnh này"
+                    >
+                      <i className="fa-solid fa-xmark" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

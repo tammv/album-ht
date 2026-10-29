@@ -168,6 +168,7 @@ export default function Lightbox({ photos = [], start = 0, autoPlay = false, tit
             src={optimized(p.url)}
             alt={p.caption || 'Ảnh kỷ niệm'}
             decoding="async"
+            referrerPolicy="no-referrer"
             style={{
               backgroundImage: `url("${thumb(p.url)}")`,
               backgroundSize: 'contain',

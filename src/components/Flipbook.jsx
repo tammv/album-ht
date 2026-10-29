@@ -27,6 +27,7 @@ function PageContent({ page, side, layoutStyle }) {
             src={coverUrl(page.album.coverPhoto)}
             alt={page.album.title}
             decoding="async"
+            referrerPolicy="no-referrer"
             className="w-full h-full object-contain select-none"
             draggable={false}
           />
@@ -91,6 +92,7 @@ function PageContent({ page, side, layoutStyle }) {
             src={optimized(p.url)}
             alt={p.caption || ''}
             decoding="async"
+            referrerPolicy="no-referrer"
             className="w-full h-full object-cover select-none"
             draggable={false}
           />
@@ -116,17 +118,17 @@ function PageContent({ page, side, layoutStyle }) {
           {/* Ảnh lớn bên trái */}
           <div className="col-span-7 h-full flex flex-col">
             <div className="relative flex-grow rounded-xl overflow-hidden bg-white p-1.5 shadow-md">
-              <img src={optimized(p1.url)} alt="" decoding="async" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <img src={optimized(p1.url)} alt="" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-lg" draggable={false} />
               {p1.caption && <p className="font-hand text-rose-700 text-xs sm:text-sm text-center mt-1 truncate">{p1.caption}</p>}
             </div>
           </div>
           {/* 2 ảnh nhỏ bên phải */}
           <div className="col-span-5 flex flex-col gap-2 h-full">
             <div className="relative h-1/2 rounded-xl overflow-hidden bg-white p-1.5 shadow-sm -rotate-1">
-              <img src={optimized(p2.url)} alt="" decoding="async" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <img src={optimized(p2.url)} alt="" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-lg" draggable={false} />
             </div>
             <div className="relative h-1/2 rounded-xl overflow-hidden bg-white p-1.5 shadow-sm rotate-2">
-              <img src={optimized(p3.url)} alt="" decoding="async" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <img src={optimized(p3.url)} alt="" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-lg" draggable={false} />
             </div>
           </div>
         </div>
@@ -153,6 +155,7 @@ function PageContent({ page, side, layoutStyle }) {
               src={optimized(photo.url)}
               alt={photo.caption || ''}
               decoding="async"
+              referrerPolicy="no-referrer"
               className="max-h-[220px] sm:max-h-[340px] md:max-h-[380px] w-auto object-contain mx-auto select-none"
               draggable={false}
             />

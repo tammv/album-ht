@@ -143,6 +143,194 @@ app.post('/api/geo/resolve', h(async (req, res) => {
   res.json({ lat: 16.4637, lng: 107.5909, name: 'Huế, Việt Nam' });
 }));
 
+/**
+ * Giải mã thông minh các loại Link Chia Sẻ Ảnh:
+ * 1. Google Drive (Link 1 ảnh lẻ HOẶC Link cả Thư mục Google Drive công khai)
+ * 2. Link Chia Sẻ Android: Google Photos (photos.app.goo.gl / photos.google.com) & Samsung Quick Share (quickshare.samsungcloud.com)
+ * 3. Link Apple AirDrop / iCloud Photos (share.icloud.com/photos/... / icloud.com/photos/...)
+ * 4. Link Dropbox, OneDrive hoặc trang web có chứa ảnh (og:image) / URL ảnh trực tiếp
+ */
+async function resolveSingleShareUrl(rawUrl) {
+  const url = String(rawUrl || '').trim();
+  if (!/^https?:\/\//i.test(url)) return [];
+
+  // 1A. Thư mục Google Drive công khai (drive.google.com/drive/folders/FOLDER_ID)
+  const driveFolderMatch = url.match(/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/([A-Za-z0-9_-]+)/i);
+  if (driveFolderMatch) {
+    const folderId = driveFolderMatch[1];
+    try {
+      const r = await fetch(`https://drive.google.com/embeddedfolderview?id=${folderId}#grid`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      });
+      if (r.ok) {
+        const html = await r.text();
+        const items = [];
+        const seen = new Set();
+        const entryRegex = /id="entry-([A-Za-z0-9_-]+)"[\s\S]*?<div class="flip-entry-title">([^<]+)<\/div>/gi;
+        let m;
+        while ((m = entryRegex.exec(html)) !== null) {
+          const fileId = m[1];
+          const title = (m[2] || '').trim();
+          // Bỏ qua các file chắc chắn không phải ảnh (video, tài liệu, nén)
+          if (/\.(mp4|mov|avi|mkv|pdf|zip|rar|doc|docx|xls|xlsx|txt)$/i.test(title)) continue;
+          if (!seen.has(fileId)) {
+            seen.add(fileId);
+            items.push({
+              url: `https://lh3.googleusercontent.com/d/${fileId}=w1600`,
+              title: title.replace(/\.[^.]+$/, ''),
+              source: 'Thư mục Google Drive',
+            });
+          }
+        }
+        if (items.length > 0) return items.slice(0, 40);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 1B. File ảnh lẻ trên Google Drive
+  const driveFileMatch =
+    url.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)/i) ||
+    url.match(/drive\.google\.com\/open\?id=([A-Za-z0-9_-]+)/i) ||
+    url.match(/drive\.google\.com\/uc\?(?:[^#]*&)?id=([A-Za-z0-9_-]+)/i) ||
+    url.match(/drive\.google\.com\/thumbnail\?(?:[^#]*&)?id=([A-Za-z0-9_-]+)/i) ||
+    url.match(/lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]+)/i);
+  if (driveFileMatch) {
+    const fileId = driveFileMatch[1];
+    return [
+      {
+        url: `https://lh3.googleusercontent.com/d/${fileId}=w1600`,
+        source: 'Google Drive',
+      },
+    ];
+  }
+
+  // 2. Link Dropbox (chuyển sang dl.dropboxusercontent.com trực tiếp)
+  if (/dropbox\.com\//i.test(url)) {
+    const directDropbox = url
+      .replace(/^https?:\/\/(www\.)?dropbox\.com/i, 'https://dl.dropboxusercontent.com')
+      .replace(/[?&]dl=[01]/g, '');
+    return [{ url: directDropbox, source: 'Dropbox' }];
+  }
+
+  // 3. Nếu đã là link ảnh trực tiếp (.jpg, .png, .webp, .heic, .avif, res.cloudinary.com, lh3.googleusercontent.com)
+  if (
+    /\.(jpe?g|png|webp|gif|avif|heic|heif)(\?.*)?$/i.test(url) ||
+    /res\.cloudinary\.com\//i.test(url)
+  ) {
+    return [{ url, source: 'URL Ảnh Trực Tiếp' }];
+  }
+  if (/lh3\.googleusercontent\.com\//i.test(url)) {
+    const cleanGoogle = url.replace(/=[^/?#]+$/, '') + '=w1600';
+    return [{ url: cleanGoogle, source: 'Google Photos' }];
+  }
+
+  // 4. Giải mã Link Chia Sẻ Android (Google Photos, Quick Share), Apple AirDrop / iCloud Photos, OneDrive...
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8',
+        'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8',
+      },
+    });
+
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    const finalUrl = res.url || url;
+
+    // Nếu link chuyển hướng thẳng tới một file ảnh
+    if (contentType.startsWith('image/')) {
+      return [{ url: finalUrl, source: 'Link Chia Sẻ Ảnh' }];
+    }
+
+    const html = await res.text();
+    const isGooglePhotos = /photos\.app\.goo\.gl|photos\.google\.com/i.test(url) || /photos\.google\.com/i.test(finalUrl);
+    const isAppleIcloud = /icloud\.com/i.test(url) || /icloud\.com/i.test(finalUrl);
+    const isSamsungQuickShare = /samsungcloud\.com|quickshare/i.test(url) || /samsungcloud\.com/i.test(finalUrl);
+
+    const sourceLabel = isGooglePhotos
+      ? 'Android / Google Photos'
+      : isAppleIcloud
+      ? 'Apple iCloud / AirDrop'
+      : isSamsungQuickShare
+      ? 'Android Quick Share'
+      : 'Link Chia Sẻ';
+
+    const extracted = [];
+    const seenUrls = new Set();
+
+    // Với Google Photos (Android Share Link): trích xuất toàn bộ ảnh chất lượng gốc (lh3.googleusercontent.com/pw/...)
+    if (isGooglePhotos) {
+      const gpRegex = /https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_-]{20,}/g;
+      let gm;
+      while ((gm = gpRegex.exec(html)) !== null) {
+        const base = gm[0];
+        const highRes = `${base}=w1600`;
+        if (!seenUrls.has(highRes)) {
+          seenUrls.add(highRes);
+          extracted.push({ url: highRes, source: sourceLabel });
+        }
+      }
+      if (extracted.length > 0) return extracted.slice(0, 40);
+    }
+
+    // Trích xuất thẻ OpenGraph og:image / twitter:image (Hoạt động cho Apple iCloud Share, Quick Share, Google Photos 1 ảnh, OneDrive, Zalo/FB...)
+    const ogMatch =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
+      html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+
+    if (ogMatch?.[1]) {
+      let imgUrl = ogMatch[1].replace(/&amp;/g, '&').trim();
+      if (/lh3\.googleusercontent\.com\//i.test(imgUrl)) {
+        imgUrl = imgUrl.replace(/=[^/?#]+$/, '') + '=w1600';
+      }
+      return [{ url: imgUrl, source: sourceLabel }];
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // Fallback: Trả về nguyên URL nếu người dùng dán link ảnh nội bộ hoặc CDN khác
+  return [{ url, source: 'URL Ảnh' }];
+}
+
+app.post('/api/photos/resolve-link', h(async (req, res) => {
+  const { rawInput = '' } = req.body || {};
+  // Hỗ trợ dán 1 hoặc nhiều link cùng lúc (cách nhau bởi dấu xuống dòng, khoảng trắng hoặc dấu phẩy)
+  const rawLinks = String(rawInput)
+    .split(/[\n\r,]+/)
+    .map((s) => s.trim())
+    .filter((s) => /^https?:\/\//i.test(s))
+    .slice(0, 25);
+
+  if (!rawLinks.length) {
+    throw new HttpError(400, 'Vui lòng dán ít nhất 1 đường link hợp lệ (bắt đầu bằng http:// hoặc https://)');
+  }
+
+  const nested = await Promise.all(rawLinks.map((u) => resolveSingleShareUrl(u)));
+  const flat = [];
+  const seen = new Set();
+  for (const group of nested) {
+    for (const item of group) {
+      if (item?.url && !seen.has(item.url)) {
+        seen.add(item.url);
+        flat.push(item);
+      }
+    }
+  }
+
+  if (!flat.length) {
+    throw new HttpError(400, 'Không tìm thấy ảnh trong đường link này. Hãy kiểm tra quyền chia sẻ công khai của link!');
+  }
+
+  res.json({ photos: flat });
+}));
+
 // Sinh tranh AI cho Bìa Photobook (Proxy nội bộ sạch 100%, vẽ cảnh quan tràn viền không khung phụ & không chữ rác)
 app.get('/api/ai/art', h(async (req, res) => {
   const { prompt, seed } = req.query;
