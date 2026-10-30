@@ -15,7 +15,7 @@ const VietnamMapModal = lazy(() => import('./VietnamMapModal.jsx'));
 
 const PAGE_BATCH_SIZE = 24;
 
-export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBack, onLocked, onDeleted }) {
+export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBack, onLocked, onChanged, onDeleted }) {
   const toast = useToast();
   const initialAlbum = useMemo(() => {
     const found = allAlbums.find((x) => x._id === albumId);
@@ -108,6 +108,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
       const updated = await api.updateAlbum(albumId, albumForm);
       setAlbum((prev) => ({ ...prev, ...updated }));
       setEditingAlbum(false);
+      onChanged?.();
       toast('Đã cập nhật thông tin chuyến đi ✨');
     } catch (err) {
       toast(err.message, 'error');
@@ -145,7 +146,8 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
       await api.deletePhoto(p._id);
       toast('Đã xoá ảnh');
       setModal(null);
-      load();
+      load(false);
+      onChanged?.();
     } catch (e) { toast(e.message, 'error'); }
   };
 
@@ -153,7 +155,8 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
     try {
       await api.updateAlbum(albumId, { coverPhoto: p.url });
       toast('Đã đặt làm ảnh bìa 🖼️');
-      load();
+      load(false);
+      onChanged?.();
     } catch (e) { toast(e.message, 'error'); }
   };
 
@@ -460,7 +463,16 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
               </div>
             }
           >
-            {modal === 'upload' && <UploadModal albumId={albumId} onClose={() => setModal(null)} onUploaded={load} />}
+            {modal === 'upload' && (
+              <UploadModal
+                albumId={albumId}
+                onClose={() => setModal(null)}
+                onUploaded={() => {
+                  load(false);
+                  onChanged?.();
+                }}
+              />
+            )}
             {modal === 'flip' && <Flipbook album={album} photos={photos} onClose={() => setModal(null)} />}
             {modal === 'map' && (
               <VietnamMapModal
@@ -481,7 +493,8 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                 onClose={() => setModal(null)}
                 onSaved={(newCover) => {
                   setAlbum((a) => ({ ...a, coverPhoto: newCover }));
-                  load();
+                  load(false);
+                  onChanged?.();
                 }}
               />
             )}

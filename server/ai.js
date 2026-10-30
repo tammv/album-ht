@@ -149,8 +149,8 @@ export const VIETNAM_LANDMARKS = [
 export async function recognizeLandmark({ photoUrl, locationHint = '', albumTitle = '' }) {
   const geminiKey = process.env.GEMINI_API_KEY;
 
-  // 1. Thử nhận diện bằng Gemini Flash Vision nếu có API Key
-  if (geminiKey && photoUrl) {
+  // 1. Thử nhận diện bằng Gemini Flash Vision nếu có API Key và URL ảnh tuyệt đối
+  if (geminiKey && photoUrl && /^https?:\/\//i.test(photoUrl)) {
     try {
       const imgRes = await fetch(photoUrl);
       if (imgRes.ok) {
@@ -159,7 +159,7 @@ export async function recognizeLandmark({ photoUrl, locationHint = '', albumTitl
         const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
 
         const promptText = `Bạn là chuyên gia thẩm định du lịch Việt Nam và thế giới. Hãy quan sát kỹ bức ảnh này và cho biết:
-1. Đây là địa danh, di tích, thắng cảnh hoặc cảnh quan du lịch cụ thể nào (ví dụ: Đại Nội Huế, Chùa Thiên Mụ, Cầu Vàng Bà Nà, Bãi biển Nha Trang, Phố cổ Hội An, Đồi thông Đà Lạt, Tháp Rùa Hồ Gươm, Vịnh Hạ Long, Đèo Mã Pí Lèng...)?
+1. Đây là địa danh, di tích, thắng cảnh hoặc cảnh quan du lịch cụ thể nào (ví dụ: Đại Nội Huế, Chùa Thiên Mụ, Cầu Vàng Bà Nà, Bãi biển Nha Trang, Phố cổ Hội An, Đồi thông Đà Lạt, Rừng thông Măng Đen, Tháp Rùa Hồ Gươm, Vịnh Hạ Long, Đèo Mã Pí Lèng...)?
 2. Thuộc thành phố/tỉnh nào?
 3. Mô tả ngắn 1 câu những nét đẹp kiến trúc hoặc phong cảnh đặc sắc nhất.
 4. Viết 1 prompt tiếng Anh ngắn (khoảng 30-40 từ) miêu tả CẢNH QUAN THỰC TẾ trong ảnh để AI vẽ tranh phong cảnh tràn viền (LƯU Ý QUAN TRỌNG: TUYỆT ĐỐI KHÔNG dùng từ "poster", "card", "banner" trong prompt để tránh AI tự vẽ khung viền và chữ giả). Hãy dùng phong cách: "clean modern gouache and watercolor scenic landscape illustration, realistic proportions, warm natural lighting, full bleed edge-to-edge painting, no frame, no border, no text, no letters, no watermark".
@@ -169,7 +169,7 @@ Trả về duy nhất định dạng JSON thuần không bọc markdown:
 {"landmark": "Tên địa danh cụ thể", "city": "Tên thành phố/tỉnh", "details": "Mô tả chi tiết", "prompt": "prompt tiếng Anh vẽ cảnh quan tràn viền không khung không chữ"}`;
 
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

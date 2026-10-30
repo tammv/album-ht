@@ -163,6 +163,10 @@ export const blurPreview = (url) => {
  */
 export const thumb = (url, w = 480) => {
   if (!url) return '';
+  if (url.startsWith('/api/icloud/asset')) {
+    const clean = url.replace(/([?&])size=(thumb|med)/g, '').replace(/[?&]$/, '');
+    return `${clean}${clean.includes('?') ? '&' : '?'}size=thumb`;
+  }
   if (url.includes('res.cloudinary.com')) {
     return url.replace('/upload/', `/upload/c_fill,w_${w},h_${w},q_auto:eco,f_auto,fl_progressive/`);
   }
@@ -178,6 +182,10 @@ export const thumb = (url, w = 480) => {
  */
 export const coverUrl = (url, w = 800) => {
   if (!url) return '';
+  if (url.startsWith('/api/icloud/asset')) {
+    const clean = url.replace(/([?&])size=(thumb|med)/g, '').replace(/[?&]$/, '');
+    return `${clean}${clean.includes('?') ? '&' : '?'}size=med`;
+  }
   if (url.includes('res.cloudinary.com')) {
     return url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`);
   }
@@ -193,11 +201,35 @@ export const coverUrl = (url, w = 800) => {
  */
 export const optimized = (url, w = 1080) => {
   if (!url) return '';
+  if (url.startsWith('/api/icloud/asset')) {
+    const clean = url.replace(/([?&])size=(thumb|med)/g, '').replace(/[?&]$/, '');
+    return `${clean}${clean.includes('?') ? '&' : '?'}size=med`;
+  }
   if (url.includes('res.cloudinary.com')) {
     return url.replace('/upload/', `/upload/c_limit,w_${w},q_auto:good,f_auto,fl_progressive/`);
   }
   if (url.includes('lh3.googleusercontent.com')) {
     return url.replace(/=w\d+(-h\d+)?$/, '') + `=w${w}`;
+  }
+  return url;
+};
+
+/**
+ * URL an toàn CORS 100% để vẽ lên HTML5 Canvas (dùng trong Tạo Bìa Sách AI & Xưởng Lồng Khung):
+ * Đảm bảo ảnh từ iCloud, Google Drive hay URL ngoài không bao giờ bị lỗi Tainted Canvas khi xuất file.
+ */
+export const canvasSafeUrl = (url, w = 1200) => {
+  if (!url) return '';
+  if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('/api/ai/')) return url;
+  if (url.startsWith('/api/icloud/asset')) {
+    const base = optimized(url, w);
+    return `${base}${base.includes('?') ? '&' : '?'}proxy=1`;
+  }
+  if (url.includes('res.cloudinary.com')) {
+    return optimized(url, w);
+  }
+  if (/^https?:\/\//i.test(url)) {
+    return `/api/image-proxy?url=${encodeURIComponent(optimized(url, w))}`;
   }
   return url;
 };

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { optimized } from '../api.js';
+import { canvasSafeUrl, optimized } from '../api.js';
 import { useToast } from './Toast.jsx';
 
 const FRAMES = {
@@ -34,8 +34,8 @@ export default function FrameWorkshop({ photo, album, onClose }) {
         const im = new Image();
         im.crossOrigin = 'anonymous';
         im.onload = () => res(im);
-        im.onerror = () => rej(new Error('Không tải được ảnh (ảnh từ URL ngoài có thể chặn CORS)'));
-        im.src = optimized(photo.url, 1600);
+        im.onerror = () => rej(new Error('Không tải được ảnh để lồng khung'));
+        im.src = canvasSafeUrl(photo.url, 1600);
       });
       await document.fonts.ready;
       const f = FRAMES[frame];

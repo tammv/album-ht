@@ -66,6 +66,7 @@ export default function App() {
               onOpenAlbum={openAlbum}
               onBack={goHome}
               onLocked={(a) => setPinAlbum(a)}
+              onChanged={() => setRefreshKey((k) => k + 1)}
               onDeleted={() => { setRefreshKey((k) => k + 1); goHome(); }}
             />
           </Suspense>

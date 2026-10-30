@@ -239,7 +239,8 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   const [pinging, setPinging] = useState(false);
   const [url, setUrl] = useState('');
   const [resolvingLink, setResolvingLink] = useState(false);
-  const [resolvedLinks, setResolvedLinks] = useState([]); // [{ url, source, title }]
+  const [resolvedLinks, setResolvedLinks] = useState([]); // [{ url, thumbUrl, directUrl, source, title, takenAt, lat, lng }]
+  const [backupToCloudinary, setBackupToCloudinary] = useState(true); // Tự động sao lưu ảnh từ link iCloud về Cloudinary để không lo hết hạn 30 ngày
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
 
@@ -651,7 +652,22 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
       const list = res?.photos || [];
       setResolvedLinks(list);
       if (list.length > 0) {
-        toast(`✨ Tìm thấy ${list.length} ảnh từ ${list[0].source || 'đường link'}!`);
+        const firstWithDate = list.find((x) => x.takenAt);
+        const firstWithGps = list.find((x) => typeof x.lat === 'number' && typeof x.lng === 'number');
+        if (firstWithDate && !takenAt) {
+          setTakenAt(firstWithDate.takenAt);
+        }
+        if (firstWithGps && !coords) {
+          const gpsObj = { lat: firstWithGps.lat, lng: firstWithGps.lng };
+          setCoords(gpsObj);
+          reverseGeocode(gpsObj.lat, gpsObj.lng).then((label) => {
+            if (!locationName) setLocationName(label);
+          });
+        }
+        toast(
+          `✨ Đã quét được ${list.length} tấm từ ${list[0].source || 'đường link'}${firstWithGps ? ' (kèm tọa độ GPS & Ngày chụp gốc!)' : '!'
+          }`
+        );
       }
       return list;
     } catch (e) {
@@ -672,16 +688,54 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
 
     setBusy(true);
     try {
-      const payload = itemsToSave.map((item) => ({
-        url: item.url,
-        caption: caption || item.title || '',
-        tags,
-        takenAt,
-        locationName,
-        mapUrl: getComputedMapUrl(),
-        lat: coords?.lat,
-        lng: coords?.lng,
-      }));
+      const payload = [];
+      const queue = [...itemsToSave];
+      const worker = async () => {
+        while (queue.length) {
+          const item = queue.shift();
+          const itemGps =
+            typeof item.lat === 'number' && typeof item.lng === 'number'
+              ? { lat: item.lat, lng: item.lng }
+              : coords;
+
+          let finalUrl = item.url;
+          let publicId = '';
+          let width = item.width;
+          let height = item.height;
+
+          // Nếu bật "Sao lưu vĩnh viễn lên Cloudinary", gửi thẳng URL gốc (directUrl) để máy chủ Cloudinary tải về lưu trữ vĩnh viễn
+          if (backupToCloudinary && (item.directUrl || /^https?:\/\//i.test(item.url))) {
+            try {
+              const up = await api.uploadToCloudinary(albumId, item.directUrl || item.url);
+              if (up?.url) {
+                finalUrl = up.url;
+                publicId = up.publicId || '';
+                width = up.width || width;
+                height = up.height || height;
+              }
+            } catch {
+              // Nếu Cloudinary chưa cấu hình ở môi trường dev, tự động dùng link proxy nội bộ
+            }
+          }
+
+          payload.push({
+            url: finalUrl,
+            publicId,
+            caption: caption || item.title || '',
+            tags,
+            takenAt: takenAt || item.takenAt || '',
+            locationName,
+            mapUrl: getComputedMapUrl(itemGps),
+            lat: itemGps?.lat,
+            lng: itemGps?.lng,
+            width,
+            height,
+          });
+        }
+      };
+
+      await Promise.all([worker(), worker(), worker(), worker()]);
+
       await api.addPhotos(albumId, payload);
       toast(`Đã thêm ${payload.length} ảnh từ ${itemsToSave[0].source || 'liên kết'} 💕`);
       setUrl('');
@@ -1007,8 +1061,20 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           </div>
 
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Dán link <b>Google Drive</b> (1 ảnh hoặc cả thư mục công khai), link <b>Google Photos / Quick Share</b> (Android), <b>iCloud Photos</b> (iPhone) hoặc nhiều link ảnh (mỗi dòng 1 link):
+            Dán link <b>Apple iCloud</b> (Link <code>icloudlinks</code> hoặc <code>sharedalbum</code>), <b>Google Drive</b> (1 ảnh hoặc cả thư mục), <b>Google Photos / Quick Share</b> (Android) hoặc nhiều link ảnh:
           </p>
+
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={backupToCloudinary}
+              onChange={(e) => setBackupToCloudinary(e.target.checked)}
+              className="rounded border-rose-300 text-rose-600 focus:ring-rose-400"
+            />
+            <span>
+              ☁️ <b>Sao lưu vĩnh viễn về Cloudinary</b> (Không lo link iCloud / Quick Share tự hết hạn sau 30 ngày)
+            </span>
+          </label>
 
           <div className="flex flex-col sm:flex-row gap-2">
             <textarea
@@ -1047,28 +1113,51 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           {/* Hiển thị lưới xem trước các ảnh quét được từ Link Drive / Google Photos / iCloud */}
           {resolvedLinks.length > 0 && (
             <div className="pt-1 space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] text-emerald-800 font-semibold">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-emerald-800 font-semibold">
                 <span>
                   <i className="fa-solid fa-circle-check text-emerald-600 mr-1" />
-                  Đã nhận diện {resolvedLinks.length} ảnh từ <b>{resolvedLinks[0]?.source}</b>:
+                  Đã nhận diện <b>{resolvedLinks.length} tấm</b> từ <b>{resolvedLinks[0]?.source}</b>:
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setResolvedLinks([])}
-                  className="text-slate-400 hover:text-rose-600 text-[10px]"
-                >
-                  Xoá danh sách
-                </button>
+                <div className="flex items-center gap-2">
+                  {resolvedLinks.some((x) => x.isVideo) && resolvedLinks.some((x) => !x.isVideo) && (
+                    <button
+                      type="button"
+                      onClick={() => setResolvedLinks((prev) => prev.filter((x) => !x.isVideo))}
+                      className="px-2 py-0.5 rounded-full bg-white text-amber-800 border border-amber-300 text-[10px] hover:bg-amber-100"
+                      title="Chỉ giữ lại các bức ảnh chụp tĩnh, bỏ các khung ảnh trích từ video"
+                    >
+                      Chỉ lấy {resolvedLinks.filter((x) => !x.isVideo).length} ảnh tĩnh
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setResolvedLinks([])}
+                    className="text-slate-400 hover:text-rose-600 text-[10px]"
+                  >
+                    Xoá danh sách
+                  </button>
+                </div>
               </div>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-36 overflow-y-auto p-1 bg-white rounded-xl border border-amber-200/60">
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-40 overflow-y-auto p-1.5 bg-white rounded-xl border border-amber-200/60">
                 {resolvedLinks.map((item, idx) => (
                   <div key={item.url + idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
                     <img
-                      src={item.url}
+                      src={item.thumbUrl || item.url}
                       alt={item.title || ''}
+                      loading="lazy"
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
                     />
+                    {typeof item.lat === 'number' && (
+                      <span className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-emerald-600/90 text-white text-[7px] font-bold">
+                        GPS
+                      </span>
+                    )}
+                    {item.isVideo && (
+                      <span className="absolute bottom-0.5 right-0.5 px-1 py-0.2 rounded bg-black/70 text-amber-300 text-[7px] font-bold">
+                        LIVE/VID
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => setResolvedLinks((prev) => prev.filter((_, j) => j !== idx))}

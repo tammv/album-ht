@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, optimized, thumb } from '../api.js';
+import { api, canvasSafeUrl, thumb } from '../api.js';
 import { useToast } from './Toast.jsx';
 
 // Bảng màu bìa sách Photobook chuẩn thị trường (Mixbook, Artifact Uprising, Monocle)
@@ -135,6 +135,16 @@ const REALISTIC_TRAVEL_PRESETS = [
     prompt:
       'Ha Giang Ma Pi Leng mountain pass overlooking deep Tu San canyon and emerald turquoise Nho Que River, blooming pink buckwheat flowers in foreground, majestic mountain peaks, clean modern gouache and watercolor landscape painting, teal cyan and warm earth tones, full bleed edge-to-edge scenery, no border, no frame, no text, no letters',
   },
+  {
+    id: 'mangden',
+    name: '🌲 Cao Nguyên Măng Đen',
+    location: 'MĂNG ĐEN',
+    subtitle: 'Măng Đen Calling ...',
+    tagline: 'ĐẠI NGÀN THÔNG REO • SƯƠNG SỚM CAO NGUYÊN',
+    desc: 'Rừng thông Măng Đen mờ sương, hồ Đăk Ke & hoa anh đào (Quảng Ngãi mới)',
+    prompt:
+      'scenic Mang Den highland pine forest in morning mist, tranquil Dak Ke lake reflecting blooming pink cherry blossom trees and cozy wooden cabin, gentle waterfall in background, clean modern gouache and watercolor highland landscape painting, emerald pine green and warm sunrise tones, full bleed edge-to-edge scenery, no border, no frame, no text, no letters',
+  },
 ];
 
 // Tìm preset khớp với tên địa danh hoặc tên album
@@ -145,6 +155,7 @@ function findMatchingPreset(location = '', title = '') {
       (p) =>
         text.includes(p.location.toLowerCase()) ||
         text.includes(p.id) ||
+        (p.id === 'mangden' && (text.includes('măng đen') || text.includes('mang den') || text.includes('kon plông') || text.includes('kon tum'))) ||
         (p.id === 'hue' && (text.includes('huế') || text.includes('hue') || text.includes('đại nội') || text.includes('thiên mụ')))
     ) || REALISTIC_TRAVEL_PRESETS[0]
   );
@@ -486,7 +497,7 @@ export default function CoverStudio({ album, photos = [], onClose, onSaved }) {
           ctx.restore();
           finishEditorial();
         };
-        img.src = targetPhoto.startsWith('/api/') || targetPhoto.startsWith('blob:') ? targetPhoto : optimized(targetPhoto, 1200);
+        img.src = canvasSafeUrl(targetPhoto, 1200);
       } else {
         ctx.save();
         ctx.beginPath();
@@ -561,7 +572,7 @@ export default function CoverStudio({ album, photos = [], onClose, onSaved }) {
           ctx.drawImage(img, (W - nw) / 2, (H - nh) / 2, nw, nh);
           renderOverlayTypography();
         };
-        img.src = bgSource.startsWith('/api/') || bgSource.startsWith('blob:') ? bgSource : optimized(bgSource, 1400);
+        img.src = canvasSafeUrl(bgSource, 1400);
       } else {
         drawScenicIllustration(ctx, sceneId, 0, 0, W, H);
         renderOverlayTypography();
@@ -884,7 +895,7 @@ export default function CoverStudio({ album, photos = [], onClose, onSaved }) {
         ctx.ellipse(lx, ly + 24, 24, 30, 0, 0, Math.PI * 2);
         ctx.fill();
       });
-    } else if (id === 'dalat' || id === 'sapa' || id === 'hagiang') {
+    } else if (id === 'dalat' || id === 'mangden' || id === 'sapa' || id === 'hagiang') {
       // ĐÀ LẠT / SA PA / HÀ GIANG: Đồi thông sương mù, Núi non & Ruộng bậc thang / Hoa
       const sky = ctx.createLinearGradient(0, 0, 0, h * 0.6);
       sky.addColorStop(0, '#BAE6FD');
