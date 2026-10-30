@@ -568,43 +568,43 @@ async function resolveSingleShareUrl(rawUrl) {
   }
 
   /** Trích xuất ngày chụp từ tên file ảnh thông minh (IMG_20260308, Screenshot_2026-03-07, Locket_1772940810644...) */
-function extractDateFromFilename(name) {
-  if (!name) return '';
-  // 1. YYYY-MM-DD hoặc YYYY_MM_DD (vd: Screenshot_2026-03-07-10-29-01...)
-  const ymDash = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
-  if (ymDash) {
-    const y = parseInt(ymDash[1], 10);
-    const m = parseInt(ymDash[2], 10);
-    const d = parseInt(ymDash[3], 10);
-    if (y >= 2000 && y <= 2035 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+  function extractDateFromFilename(name) {
+    if (!name) return '';
+    // 1. YYYY-MM-DD hoặc YYYY_MM_DD (vd: Screenshot_2026-03-07-10-29-01...)
+    const ymDash = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
+    if (ymDash) {
+      const y = parseInt(ymDash[1], 10);
+      const m = parseInt(ymDash[2], 10);
+      const d = parseInt(ymDash[3], 10);
+      if (y >= 2000 && y <= 2035 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+      }
     }
-  }
-  // 2. YYYYMMDD (vd: IMG20260308095303, VID20260308101251)
-  const ymNum = name.match(/(?:IMG|VID|PANO|PHOTO|SCAN)?[-_]?(\d{4})(\d{2})(\d{2})/i);
-  if (ymNum) {
-    const y = parseInt(ymNum[1], 10);
-    const m = parseInt(ymNum[2], 10);
-    const d = parseInt(ymNum[3], 10);
-    if (y >= 2000 && y <= 2035 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+    // 2. YYYYMMDD (vd: IMG20260308095303, VID20260308101251)
+    const ymNum = name.match(/(?:IMG|VID|PANO|PHOTO|SCAN)?[-_]?(\d{4})(\d{2})(\d{2})/i);
+    if (ymNum) {
+      const y = parseInt(ymNum[1], 10);
+      const m = parseInt(ymNum[2], 10);
+      const d = parseInt(ymNum[3], 10);
+      if (y >= 2000 && y <= 2035 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+      }
     }
-  }
-  // 3. Epoch ms timestamp (vd: Locket_1772940810644_26)
-  const ymEpoch = name.match(/(\d{13})/i);
-  if (ymEpoch) {
-    const dt = new Date(parseInt(ymEpoch[1], 10));
-    if (!isNaN(dt.getTime()) && dt.getFullYear() >= 2010 && dt.getFullYear() <= 2035) {
-      const d = dt.getDate();
-      const m = dt.getMonth() + 1;
-      const y = dt.getFullYear();
-      return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+    // 3. Epoch ms timestamp (vd: Locket_1772940810644_26)
+    const ymEpoch = name.match(/(\d{13})/i);
+    if (ymEpoch) {
+      const dt = new Date(parseInt(ymEpoch[1], 10));
+      if (!isNaN(dt.getTime()) && dt.getFullYear() >= 2010 && dt.getFullYear() <= 2035) {
+        const d = dt.getDate();
+        const m = dt.getMonth() + 1;
+        const y = dt.getFullYear();
+        return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+      }
     }
+    return '';
   }
-  return '';
-}
 
-// 1A. Thư mục Google Drive công khai (drive.google.com/drive/folders/FOLDER_ID)
+  // 1A. Thư mục Google Drive công khai (drive.google.com/drive/folders/FOLDER_ID)
   const driveFolderMatch = url.match(/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/([A-Za-z0-9_-]+)/i);
   if (driveFolderMatch) {
     const folderId = driveFolderMatch[1];
@@ -963,6 +963,10 @@ app.patch('/api/photos/:id', requireAdmin, h(async (req, res) => {
   if ('takenAt' in req.body) photo.takenAt = String(req.body.takenAt).trim();
   if ('lat' in req.body) photo.lat = typeof req.body.lat === 'number' ? req.body.lat : undefined;
   if ('lng' in req.body) photo.lng = typeof req.body.lng === 'number' ? req.body.lng : undefined;
+  if ('url' in req.body && /^(https?:\/\/|\/api\/icloud\/asset)/.test(req.body.url)) photo.url = req.body.url;
+  if ('publicId' in req.body) photo.publicId = String(req.body.publicId || '');
+  if ('width' in req.body) photo.width = req.body.width;
+  if ('height' in req.body) photo.height = req.body.height;
   await photo.save();
   res.json(photo);
 }));

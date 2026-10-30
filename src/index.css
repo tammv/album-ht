@@ -3,27 +3,60 @@
 @tailwind utilities;
 
 body {
-  font-family: 'Be Vietnam Pro', sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
   overflow-x: hidden;
+  background-color: #FAF8F5;
+  color: #292524;
 }
 
-/* Paper & Scrapbook */
-.paper-texture {
-  background-color: #fdfbf7;
-  background-image: radial-gradient(#e2d9cc 0.75px, transparent 0.75px);
-  background-size: 16px 16px;
+.font-editorial {
+  font-family: 'Playfair Display', Georgia, serif;
 }
+
+/* Luxury Quiet Aesthetic & Paper Texture */
+.paper-texture {
+  background-color: #FAF8F5;
+  background-image: radial-gradient(#dfd6c8 0.75px, transparent 0.75px);
+  background-size: 20px 20px;
+}
+
 .washi-tape-strip {
-  background: repeating-linear-gradient(-45deg, rgba(251,191,36,.8), rgba(251,191,36,.8) 10px, rgba(245,158,11,.9) 10px, rgba(245,158,11,.9) 20px);
-  box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  background: repeating-linear-gradient(-45deg, rgba(252, 211, 77, 0.75), rgba(252, 211, 77, 0.75) 10px, rgba(245, 158, 11, 0.85) 10px, rgba(245, 158, 11, 0.85) 20px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 .washi-tape-rose {
-  background: repeating-linear-gradient(45deg, rgba(251,113,133,.85), rgba(251,113,133,.85) 12px, rgba(244,63,94,.9) 12px, rgba(244,63,94,.9) 24px);
-  box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  background: repeating-linear-gradient(45deg, rgba(251, 113, 133, 0.75), rgba(251, 113, 133, 0.75) 12px, rgba(244, 63, 94, 0.85) 12px, rgba(244, 63, 94, 0.85) 24px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 .washi-tape-teal {
-  background: repeating-linear-gradient(-45deg, rgba(45,212,191,.85), rgba(45,212,191,.85) 8px, rgba(20,184,166,.9) 8px, rgba(20,184,166,.9) 16px);
-  box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  background: repeating-linear-gradient(-45deg, rgba(45, 212, 191, 0.75), rgba(45, 212, 191, 0.75) 8px, rgba(20, 184, 166, 0.85) 8px, rgba(20, 184, 166, 0.85) 16px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Glassmorphism & Floating Command Dock */
+.glass-dock {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(226, 217, 204, 0.75);
+  box-shadow: 0 12px 32px -8px rgba(180, 83, 9, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.9);
+}
+
+.luxury-card {
+  background: #FFFFFF;
+  border: 1px solid rgba(231, 225, 216, 0.85);
+  box-shadow: 0 4px 20px -2px rgba(44, 34, 25, 0.03);
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.luxury-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(244, 114, 182, 0.4);
+  box-shadow: 0 18px 40px -10px rgba(190, 90, 107, 0.12);
+}
+
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 280px;
 }
 
 /* 3D Photobook */
@@ -54,13 +87,13 @@ body {
 .filter-romantic { filter: saturate(1.15) brightness(1.05) hue-rotate(-5deg); }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #f1f5f9; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-track { background: #FAF8F5; }
+::-webkit-scrollbar-thumb { background: #dfd6c8; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #bdae9c; }
 
 @layer components {
-  .btn-rose { @apply px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-medium text-sm flex items-center gap-2 shadow-md shadow-rose-200 transition active:scale-95 disabled:opacity-60; }
-  .input { @apply w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-400 focus:outline-none text-sm bg-white; }
-  .modal-backdrop { @apply fixed inset-0 w-screen h-screen bg-slate-900/75 backdrop-blur-sm z-[100] overflow-y-auto overflow-x-hidden flex items-start justify-center p-3 sm:p-6 md:p-8; }
-  .modal-card { @apply my-auto bg-white rounded-3xl w-full p-4 sm:p-6 shadow-2xl border border-rose-100 relative; }
+  .btn-rose { @apply px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 via-rose-600 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white font-medium text-sm flex items-center gap-2 shadow-sm shadow-rose-900/10 transition duration-200 active:scale-95 disabled:opacity-60; }
+  .input { @apply w-full px-3.5 py-2.5 border border-stone-200 rounded-xl focus:ring-2 focus:ring-rose-400 focus:outline-none text-sm bg-white text-stone-800 transition; }
+  .modal-backdrop { @apply fixed inset-0 w-screen h-screen bg-stone-900/70 backdrop-blur-md z-[100] overflow-y-auto overflow-x-hidden flex items-start justify-center p-3 sm:p-6 md:p-8; }
+  .modal-card { @apply my-auto bg-white rounded-3xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200/80 relative; }
 }

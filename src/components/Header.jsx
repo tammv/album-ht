@@ -5,19 +5,19 @@ export default function Header({ onHome, onNewAlbum, onOpenMap, onAdmin, adminRe
   const hasKey = Boolean(getAdminKey());
 
   return (
-    <header className="bg-white/95 backdrop-blur-md border-b border-rose-100 sticky top-0 z-30 shadow-sm">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 min-h-[76px] py-2 flex flex-wrap items-center justify-between gap-2">
-        <button id="logo-home" className="flex items-center gap-3 text-left" onClick={onHome}>
-          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center text-xl shadow-md shadow-rose-200 flex-shrink-0">
+    <header className="bg-[#FAF8F5]/85 backdrop-blur-xl border-b border-stone-200/70 sticky top-0 z-30 shadow-2xs transition-all">
+      <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 min-h-[74px] py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+        <button id="logo-home" className="flex items-center gap-3 text-left group" onClick={onHome}>
+          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-rose-500 via-rose-600 to-amber-500 text-white flex items-center justify-center text-lg sm:text-xl shadow-md shadow-rose-900/10 border border-white/40 flex-shrink-0 group-hover:scale-105 transition duration-300">
             <i className="fa-solid fa-heart" />
           </div>
           <div>
-            <span className="text-[10px] sm:text-xs uppercase tracking-widest font-semibold text-rose-500 block">
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] font-semibold text-rose-600/90 block">
               Nhật Ký Đôi Ta • Việt Nam
             </span>
-            <div className="font-serif font-bold text-lg sm:text-2xl text-slate-900 flex items-center gap-2">
+            <div className="font-editorial font-bold text-lg sm:text-2xl text-stone-900 flex items-center tracking-tight">
               Kỷ Niệm Hành Trình
-              <span className="font-hand text-rose-600 text-lg font-normal hidden md:inline">cùng người thương</span>
+              <span className="font-hand text-rose-600 text-lg sm:text-xl font-normal ml-2 hidden sm:inline">cùng người thương</span>
             </div>
           </div>
         </button>
@@ -29,7 +29,7 @@ export default function Header({ onHome, onNewAlbum, onOpenMap, onAdmin, adminRe
               id="header-map-btn"
               type="button"
               onClick={onOpenMap}
-              className="px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition shadow-xs text-xs font-semibold flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-full bg-white/90 hover:bg-stone-50 text-stone-800 border border-stone-200 shadow-2xs transition text-xs font-semibold flex items-center gap-1.5 active:scale-95"
               title="Xem bản đồ các điểm hai đứa đã đặt chân đến"
             >
               <i className="fa-solid fa-map-location-dot text-rose-500" />
@@ -44,8 +44,8 @@ export default function Header({ onHome, onNewAlbum, onOpenMap, onAdmin, adminRe
             <button
               id="admin-btn"
               onClick={onAdmin}
-              className={`p-2 rounded-xl border bg-white transition shadow-xs text-sm ${
-                hasKey ? 'border-emerald-200 text-emerald-600' : 'border-slate-200 text-slate-600 hover:text-rose-600'
+              className={`p-2 rounded-full border bg-white transition shadow-2xs text-xs sm:text-sm ${
+                hasKey ? 'border-emerald-300 text-emerald-600 bg-emerald-50/50' : 'border-stone-200 text-stone-600 hover:text-rose-600'
               }`}
               title="Mã quản trị"
             >
@@ -53,9 +53,9 @@ export default function Header({ onHome, onNewAlbum, onOpenMap, onAdmin, adminRe
             </button>
           )}
 
-          <button id="new-album-btn" onClick={onNewAlbum} className="btn-rose py-2 px-3 sm:px-4 text-xs sm:text-sm">
-            <i className="fa-solid fa-plus" />
-            <span className="hidden md:inline">Tạo Chuyến Đi Mới</span>
+          <button id="new-album-btn" onClick={onNewAlbum} className="btn-rose py-2 px-3.5 sm:px-4.5 rounded-full text-xs sm:text-sm shadow-sm">
+            <i className="fa-solid fa-plus text-xs" />
+            <span className="hidden md:inline font-semibold">Tạo Chuyến Đi Mới</span>
           </button>
         </div>
       </div>

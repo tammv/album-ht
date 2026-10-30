@@ -50,7 +50,7 @@ const LazyImage = memo(function LazyImage({
       {!loaded && !errored && (
         <div
           aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-r from-stone-200/40 via-white/30 to-stone-200/40 animate-pulse pointer-events-none"
+          className="absolute inset-0 bg-gradient-to-r from-stone-200/50 via-white/40 to-stone-200/50 animate-pulse pointer-events-none"
         />
       )}
 
@@ -71,7 +71,7 @@ const LazyImage = memo(function LazyImage({
           draggable={draggable}
           onLoad={() => setLoaded(true)}
           onError={() => setErrored(true)}
-          className={`${className} transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+          className={`${className} transition-opacity duration-500 ease-out ${loaded ? 'opacity-100' : 'opacity-0'}`}
         />
       )}
     </div>

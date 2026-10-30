@@ -49,52 +49,52 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
 
   return (
     <section className="space-y-8">
-      {/* Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-rose-900 via-rose-800 to-slate-900 text-white p-6 sm:p-10 shadow-xl shadow-rose-950/10">
-        <div className="absolute -right-10 -bottom-10 opacity-10 text-9xl pointer-events-none">
+      {/* Hero phong cách Quiet Luxury điện ảnh */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#2b1218] via-[#3a1924] to-[#1a1816] text-white p-6 sm:p-10 shadow-2xl shadow-rose-950/15 border border-white/10">
+        <div className="absolute -right-10 -bottom-10 opacity-10 text-9xl pointer-events-none text-rose-300">
           <i className="fa-solid fa-compass" />
         </div>
-        <div className="relative z-10 max-w-2xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/30 text-rose-200 border border-rose-400/30 text-xs font-medium">
+        <div className="relative z-10 max-w-2xl space-y-3.5">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-rose-200 border border-white/15 text-xs font-medium backdrop-blur-md">
             <i className="fa-solid fa-wand-magic-sparkles text-amber-300" />
             <span>Nắm tay nhau đi khắp dải đất chữ S</span>
           </div>
-          <h1 className="font-serif text-2xl sm:text-4xl font-bold leading-tight">
+          <h1 className="font-editorial text-2xl sm:text-4xl lg:text-5xl font-bold leading-tight tracking-tight">
             Từng Bước Chân Đôi Mình Đi Qua, Từng Khung Hình Gửi Trọn Yêu Thương
           </h1>
-          <p className="text-rose-100/90 text-sm sm:text-base font-light">
+          <p className="text-stone-300 text-sm sm:text-base font-light leading-relaxed">
             Lưu giữ kỷ niệm những chuyến đi hằng năm, lồng khung đậm chất địa danh Việt Nam, khóa bí mật góc nhỏ riêng tư và lật từng trang sách ảnh kỷ niệm 3D.
           </p>
           <div className="pt-2 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => setShowMap(true)}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 text-xs sm:text-sm font-bold shadow-lg shadow-amber-950/20 flex items-center gap-2 transition active:scale-95"
+              className="px-4 py-2.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-stone-950 text-xs sm:text-sm font-bold shadow-lg shadow-amber-950/20 flex items-center gap-2 transition active:scale-95"
             >
               <i className="fa-solid fa-map-location-dot text-rose-700" />
               <span>Xem Các Điểm Đã Đến (Bản Đồ Chữ S)</span>
             </button>
           </div>
         </div>
-        <div className="mt-8 pt-6 border-t border-rose-700/50 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center relative z-10">
+        <div className="mt-8 pt-6 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-3.5 text-center relative z-10">
           {[
             [stats.albums, 'Chuyến Đi Đã Đi', 'text-amber-300'],
             [stats.photos, 'Bức Ảnh Kỷ Niệm', 'text-rose-300'],
             [stats.locked, 'Album Đặt Mã Khóa', 'text-emerald-300'],
             [stats.years, 'Năm Hành Trình', 'text-sky-300'],
           ].map(([v, label, color]) => (
-            <div key={label} className="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
-              <div className={`text-2xl font-bold font-serif ${color}`}>{v ?? 0}</div>
-              <div className="text-xs text-rose-200 mt-0.5">{label}</div>
+            <div key={label} className="bg-white/[0.08] rounded-2xl p-3.5 backdrop-blur-md border border-white/10">
+              <div className={`text-2xl sm:text-3xl font-bold font-editorial ${color}`}>{v ?? 0}</div>
+              <div className="text-xs text-stone-300 mt-0.5">{label}</div>
             </div>
           ))}
         </div>
       </div>
 
       {/* Thanh hiển thị nhanh Các Điểm Đã Đến ngay ngoài màn hình chính */}
-      <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-stone-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mr-1">
+          <span className="text-xs font-bold text-stone-700 flex items-center gap-1.5 mr-1">
             <i className="fa-solid fa-location-dot text-rose-500" />
             Các điểm đã đến ({visitedPlaces.length}):
           </span>
@@ -189,18 +189,18 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                 onClick={() => onOpen(a)}
                 onMouseEnter={() => api.prefetchAlbum(a)}
                 style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
-                className="group relative bg-white rounded-3xl p-4 border border-slate-200/80 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer animate-fade-up"
+                className="luxury-card group relative rounded-3xl p-4 border border-stone-200/85 hover:border-rose-300/80 shadow-sm hover:shadow-2xl transition-all duration-300 cursor-pointer animate-fade-up"
               >
                 <div className={`absolute -top-2 left-1/2 -translate-x-1/2 w-24 h-6 rotate-[-2deg] z-10 ${TAPES[i % 3]}`} />
                 {/* Khung bìa sách poster dọc chuẩn 3:4 — giữ nguyên vẹn 100% bố cục poster */}
-                <div className="relative aspect-[3/4] rounded-r-2xl rounded-l-md overflow-hidden bg-[#FAF6EE] shadow-md border border-stone-200/80 border-l-[6px] border-l-amber-900/35 group-hover:shadow-2xl transition duration-500">
+                <div className="relative aspect-[3/4] rounded-r-2xl rounded-l-md overflow-hidden bg-[#FAF6EE] shadow-md border border-stone-200/90 border-l-[6px] border-l-stone-900/35 group-hover:shadow-2xl transition duration-500">
                   {/* Hiệu ứng nếp gấp gáy sách 3D chân thực */}
                   <div className="absolute left-0 top-0 bottom-0 w-3.5 bg-gradient-to-r from-black/20 via-white/10 to-transparent z-10 pointer-events-none" />
 
                   {locked ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-rose-900 to-slate-900 text-white">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-[#2b1218] to-stone-900 text-white">
                       <i className="fa-solid fa-lock text-4xl text-amber-300 mb-2" />
-                      <span className="text-xs text-rose-200">Góc kỷ niệm bí mật</span>
+                      <span className="text-xs text-rose-200 font-serif">Góc kỷ niệm bí mật</span>
                     </div>
                   ) : a.coverPhoto ? (
                     <LazyImage
@@ -208,24 +208,24 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                       alt={a.title}
                       priority={i < 6}
                       wrapperClassName="w-full h-full"
-                      className="w-full h-full object-cover object-center group-hover:scale-[1.02] transition duration-700"
+                      className="w-full h-full object-cover object-center group-hover:scale-[1.03] transition duration-700 ease-out"
                     />
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-300">
                       <i className="fa-regular fa-images text-5xl mb-2" />
-                      <span className="text-xs text-slate-400 font-serif">Chưa có bìa</span>
+                      <span className="text-xs text-stone-400 font-serif">Chưa có bìa</span>
                     </div>
                   )}
                 </div>
                 <div className="pt-3.5 px-1 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <h2 className="font-serif font-bold text-lg text-slate-900 group-hover:text-rose-700 transition line-clamp-1">{a.title}</h2>
-                    <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200/80 text-[11px] font-bold flex-shrink-0">
+                    <h2 className="font-editorial font-bold text-lg text-stone-900 group-hover:text-rose-700 transition line-clamp-1">{a.title}</h2>
+                    <span className="px-2.5 py-0.5 rounded-full bg-stone-100 group-hover:bg-rose-50 text-stone-700 group-hover:text-rose-700 border border-stone-200/80 group-hover:border-rose-200 text-[11px] font-bold flex-shrink-0 transition">
                       {a.year}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="flex items-center gap-1 truncate">
+                  <div className="flex items-center justify-between text-xs text-stone-500">
+                    <span className="flex items-center gap-1 truncate font-medium">
                       <i className="fa-solid fa-location-dot text-rose-500" />
                       {(() => {
                         const r = resolveVietnamLocation(`${a.location || ''} ${a.title || ''}`);
@@ -237,7 +237,7 @@ export default function AlbumsList({ refreshKey, onOpen, onNew }) {
                     </span>
                     <span className="flex-shrink-0"><i className="fa-regular fa-images mr-1" />{a.photoCount} ảnh</span>
                   </div>
-                  {a.desc && <p className="text-xs text-slate-500 italic line-clamp-2 pt-0.5">{a.desc}</p>}
+                  {a.desc && <p className="text-xs text-stone-500 italic line-clamp-2 pt-0.5">{a.desc}</p>}
                 </div>
               </article>
             );

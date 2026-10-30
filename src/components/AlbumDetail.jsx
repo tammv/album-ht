@@ -1,9 +1,118 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, coverUrl, isUnlocked, optimized, preloadImageUrl, thumb } from '../api.js';
-import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
+import { FAMOUS_PLACES, findProvinceByLatLng, resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 import LazyImage from './LazyImage.jsx';
+
+function geoDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const PLACE_ICONS = {
+  'Măng Đen': '🌲',
+  'Huế': '🏯',
+  'Cố Đô Huế': '🏯',
+  'Phố Cổ Hội An': '🏮',
+  'Hội An': '🏮',
+  'Đà Nẵng': '🌉',
+  'TP. Đà Nẵng': '🌉',
+  'Đà Lạt': '🌸',
+  'TP. Đà Lạt': '🌸',
+  'Nha Trang': '🏖️',
+  'TP. Nha Trang': '🏖️',
+  'Phú Quốc': '🏝️',
+  'Hà Nội': '🏛️',
+  'Hạ Long': '⛵',
+  'Ninh Bình': '🚣',
+  'Sa Pa': '⛰️',
+  'Hà Giang': '🏍️',
+  'TP. Hồ Chí Minh': '🏙️',
+  'Sài Gòn': '🏙️',
+  'Vũng Tàu': '🌊',
+  'Quy Nhơn': '☀️',
+  'Mũi Né': '🏜️',
+  'Quảng Ngãi': '🌊',
+  'Lý Sơn': '🌋',
+};
+
+/** Gom cụm các toạ độ GPS lẻ thành các địa danh du lịch thực tế (Măng Đen, Huế, Hội An...) */
+function clusterCheckInPhotos(photos = []) {
+  const checkIns = (photos || []).filter((p) => p && (p.locationName || typeof p.lat === 'number'));
+  if (!checkIns.length) return [];
+
+  const clusters = new Map();
+
+  for (const p of checkIns) {
+    let name = '';
+    let lat = p.lat;
+    let lng = p.lng;
+
+    // 1. Tên do người dùng đặt (chỉ lấy nếu không phải dãy số toạ độ 14.xxx)
+    if (p.locationName && !/^\d{1,3}\.\d+/.test(p.locationName.trim())) {
+      name = p.locationName.trim();
+    } else if (typeof lat === 'number' && typeof lng === 'number') {
+      // 2. Tìm danh thắng du lịch nổi tiếng gần nhất trong vòng 35km (vd: Măng Đen, Hội An, Huế...)
+      let closest = null;
+      let minD = 35;
+      for (const f of FAMOUS_PLACES) {
+        const d = geoDistanceKm(lat, lng, f.lat, f.lon);
+        if (d < minD) {
+          minD = d;
+          closest = f;
+        }
+      }
+      if (closest) {
+        name = closest.name;
+        lat = closest.lat;
+        lng = closest.lon;
+      } else {
+        // 3. Fallback theo tỉnh thành
+        const prov = findProvinceByLatLng(lat, lng);
+        if (prov) {
+          name = prov.name;
+          lat = prov.centerLat;
+          lng = prov.centerLon;
+        }
+      }
+    }
+
+    if (!name) continue;
+
+    if (!clusters.has(name)) {
+      let icon = '📍';
+      for (const [kw, ico] of Object.entries(PLACE_ICONS)) {
+        if (name.toLowerCase().includes(kw.toLowerCase())) {
+          icon = ico;
+          break;
+        }
+      }
+      clusters.set(name, {
+        name,
+        icon,
+        count: 0,
+        lat,
+        lng,
+        mapUrl:
+          typeof lat === 'number' && typeof lng === 'number'
+            ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`,
+      });
+    }
+
+    clusters.get(name).count += 1;
+  }
+
+  return Array.from(clusters.values()).sort((a, b) => b.count - a.count);
+}
 
 // Lazy load các công cụ nặng (Flipbook 3D, Cover Studio AI, Xưởng Khung, Lightbox, Upload, Bản Đồ)
 const UploadModal = lazy(() => import('./UploadModal.jsx'));
@@ -174,21 +283,25 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
 
   const needPhotos = (fn) => () => (photos.length ? fn() : toast('Album chưa có ảnh nào', 'error'));
   const visiblePhotos = photos.slice(0, visibleCount);
-  const checkInPhotos = photos.filter((p) => p.locationName || typeof p.lat === 'number');
+  const checkInPhotos = useMemo(
+    () => (photos || []).filter((p) => p && (p.locationName || typeof p.lat === 'number')),
+    [photos]
+  );
+  const checkInClusters = useMemo(() => clusterCheckInPhotos(photos), [photos]);
 
   return (
     <section className="space-y-8 animate-fade-up">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-200">
         <div className="space-y-1.5 flex-grow">
-          <button id="back-btn" onClick={onBack} className="inline-flex items-center gap-2 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg transition mb-2">
-            <i className="fa-solid fa-arrow-left" /> Quay lại tất cả chuyến đi
+          <button id="back-btn" onClick={onBack} className="inline-flex items-center gap-2 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-white hover:bg-rose-50 border border-stone-200/90 hover:border-rose-200 px-3.5 py-1.5 rounded-full transition mb-2 shadow-2xs">
+            <i className="fa-solid fa-arrow-left text-xs" /> Quay lại tất cả chuyến đi
           </button>
 
           {editingAlbum ? (
-            <form onSubmit={saveAlbumInfo} className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm space-y-3 max-w-xl">
+            <form onSubmit={saveAlbumInfo} className="bg-white p-4 rounded-3xl border border-rose-200 shadow-md space-y-3 max-w-xl">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
                 <div className="sm:col-span-2">
-                  <label className="font-semibold text-slate-600 block mb-0.5">Tên chuyến đi</label>
+                  <label className="font-semibold text-stone-600 block mb-0.5">Tên chuyến đi</label>
                   <input
                     required
                     value={albumForm.title}
@@ -197,7 +310,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-0.5">Năm đi</label>
+                  <label className="font-semibold text-stone-600 block mb-0.5">Năm đi</label>
                   <input
                     type="number"
                     required
@@ -209,7 +322,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-0.5">Địa danh</label>
+                  <label className="font-semibold text-stone-600 block mb-0.5">Địa danh</label>
                   <input
                     required
                     value={albumForm.location}
@@ -218,7 +331,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-0.5">Ghi chú cảm xúc</label>
+                  <label className="font-semibold text-stone-600 block mb-0.5">Ghi chú cảm xúc</label>
                   <input
                     value={albumForm.desc}
                     onChange={(e) => setAlbumForm({ ...albumForm, desc: e.target.value })}
@@ -228,13 +341,13 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                 </div>
               </div>
               <div className="flex gap-2">
-                <button type="submit" className="btn-rose py-1.5 px-4 text-xs">
+                <button type="submit" className="btn-rose py-1.5 px-4 text-xs rounded-full">
                   Lưu thông tin
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditingAlbum(false)}
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-600 hover:bg-slate-100"
+                  className="px-3.5 py-1.5 rounded-full border border-stone-200 text-xs text-stone-600 hover:bg-stone-100"
                 >
                   Huỷ
                 </button>
@@ -243,14 +356,14 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900">{album.title}</h1>
+                <h1 className="font-editorial text-2xl sm:text-4xl font-bold text-stone-900 tracking-tight">{album.title}</h1>
                 <button
                   type="button"
                   onClick={() => setEditingAlbum(true)}
                   title="Sửa tên & thông tin chuyến đi"
-                  className="w-7 h-7 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center text-xs transition"
+                  className="w-7 h-7 rounded-full bg-white hover:bg-rose-50 text-stone-500 hover:text-rose-600 border border-stone-200/80 flex items-center justify-center text-xs transition shadow-2xs"
                 >
-                  <i className="fa-solid fa-pen" />
+                  <i className="fa-solid fa-pen text-[10px]" />
                 </button>
                 {album.isLocked && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
@@ -258,98 +371,140 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm text-slate-500 font-medium">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm text-stone-500 font-medium">
                 <span className="flex items-center gap-1.5 flex-wrap">
                   <span><i className="fa-solid fa-location-dot text-rose-500 mr-1.5" />{album.location}</span>
                   {(() => {
                     const r = resolveVietnamLocation(`${album.location || ''} ${album.title || ''}`);
                     if (!r) return null;
                     return (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-semibold">
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-semibold">
                         {r.isMergedChange ? `${r.oldProvince} cũ ➔ ${r.newProvinceFull} mới` : r.newProvinceFull}
                       </span>
                     );
                   })()}
                 </span>
                 <span>•</span>
-                <span><i className="fa-regular fa-calendar text-slate-400 mr-1.5" />{album.year}</span>
+                <span><i className="fa-regular fa-calendar text-stone-400 mr-1.5" />{album.year}</span>
                 <span>•</span>
-                <span><i className="fa-regular fa-images text-slate-400 mr-1.5" />{album.photoCount} bức ảnh</span>
+                <span><i className="fa-regular fa-images text-stone-400 mr-1.5" />{album.photoCount} bức ảnh</span>
               </div>
-              {album.desc && <p className="text-xs sm:text-sm text-slate-600 italic font-light pt-1">{album.desc}</p>}
+              {album.desc && <p className="text-xs sm:text-sm text-stone-600 italic font-light pt-1">{album.desc}</p>}
             </>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Thanh Command Dock Thủy Tinh Mờ (Glassmorphic Command Bar) Thời Thượng */}
+        <div className="glass-dock p-2 sm:p-2.5 rounded-2xl sm:rounded-full flex flex-wrap items-center justify-center sm:justify-start gap-1.5 sm:gap-2 shadow-md">
+          {/* Lật Sách Ảnh 3D */}
+          <button
+            id="open-flipbook"
+            onClick={needPhotos(() => setModal('flip'))}
+            className="px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 hover:opacity-95 text-white text-xs sm:text-sm font-semibold shadow-xs transition active:scale-95 flex items-center gap-1.5"
+          >
+            <i className="fa-solid fa-book-open text-xs" />
+            <span>Lật Sách Ảnh</span>
+          </button>
+
+          {/* Trình Chiếu */}
+          <button
+            id="open-slideshow"
+            onClick={needPhotos(() => setModal({ lightbox: 0, play: true }))}
+            className="px-3.5 py-2 rounded-full bg-stone-900 hover:bg-stone-800 text-white text-xs sm:text-sm font-semibold shadow-xs transition active:scale-95 flex items-center gap-1.5"
+          >
+            <i className="fa-solid fa-play text-xs text-rose-300" />
+            <span>Trình Chiếu</span>
+          </button>
+
+          {/* Tạo Bìa Sách AI */}
+          <button
+            id="open-cover-studio"
+            onClick={() => setModal('cover')}
+            className="px-3.5 py-2 rounded-full bg-white hover:bg-purple-50 text-purple-700 border border-purple-200/90 text-xs sm:text-sm font-semibold shadow-2xs transition active:scale-95 flex items-center gap-1.5"
+          >
+            <i className="fa-solid fa-wand-magic-sparkles text-purple-500 text-xs" />
+            <span>Tạo Bìa AI</span>
+          </button>
+
+          {/* Bản Đồ Điểm Đến */}
           <button
             id="open-map-detail"
             type="button"
             onClick={() => setModal('map')}
-            className="px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition flex items-center gap-2 active:scale-95"
+            className="px-3.5 py-2 rounded-full bg-white hover:bg-amber-50 text-amber-800 border border-amber-200/90 text-xs sm:text-sm font-semibold shadow-2xs transition active:scale-95 flex items-center gap-1.5"
           >
-            <i className="fa-solid fa-map-location-dot text-rose-500" />
-            <span>Các Điểm Đã Đến</span>
+            <i className="fa-solid fa-map-location-dot text-rose-500 text-xs" />
+            <span>Bản Đồ{checkInPhotos.length > 0 ? ` (${checkInPhotos.length})` : ''}</span>
           </button>
-          <button id="open-cover-studio" onClick={() => setModal('cover')} className="px-3.5 py-2.5 bg-gradient-to-r from-purple-600 via-rose-600 to-amber-500 hover:opacity-95 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-rose-200 transition flex items-center gap-2 active:scale-95">
-            <i className="fa-solid fa-wand-magic-sparkles" />
-            <span>Tạo Bìa Sách AI</span>
+
+          <div className="hidden sm:block w-[1px] h-6 bg-stone-200/80 mx-0.5" />
+
+          {/* Thêm Ảnh */}
+          <button
+            id="open-upload"
+            onClick={() => setModal('upload')}
+            className="btn-rose py-2 px-4 rounded-full text-xs sm:text-sm font-semibold shadow-xs active:scale-95"
+          >
+            <i className="fa-solid fa-cloud-arrow-up text-xs" />
+            <span>Thêm Ảnh</span>
           </button>
-          <button id="open-flipbook" onClick={needPhotos(() => setModal('flip'))} className="px-3.5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs sm:text-sm font-medium shadow-md shadow-amber-200 transition flex items-center gap-2">
-            <i className="fa-solid fa-book-open" /> Lật Sách Ảnh
-          </button>
-          <button id="open-slideshow" onClick={needPhotos(() => setModal({ lightbox: 0, play: true }))} className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs sm:text-sm font-medium shadow-sm transition flex items-center gap-2">
-            <i className="fa-solid fa-play" /> Trình Chiếu
-          </button>
-          <button id="open-upload" onClick={() => setModal('upload')} className="btn-rose text-xs sm:text-sm py-2.5">
-            <i className="fa-solid fa-cloud-arrow-up" /> Thêm Ảnh
-          </button>
-          <button id="delete-album" onClick={removeAlbum} title="Xoá album" className="p-2.5 rounded-xl border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-200 bg-white transition">
-            <i className="fa-solid fa-trash-can" />
+
+          {/* Xoá Album */}
+          <button
+            id="delete-album"
+            onClick={removeAlbum}
+            title="Xoá album"
+            className="w-8 h-8 rounded-full border border-stone-200 hover:border-rose-200 text-stone-400 hover:text-rose-600 bg-white hover:bg-rose-50 flex items-center justify-center transition shadow-2xs"
+          >
+            <i className="fa-solid fa-trash-can text-xs" />
           </button>
         </div>
       </div>
 
-      {/* Thanh hiển thị nhanh các điểm check-in GPS trong chuyến đi */}
-      {checkInPhotos.length > 0 && (
-        <div className="bg-white p-3.5 rounded-2xl border border-amber-200/80 shadow-xs flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mr-1">
-              <i className="fa-solid fa-location-crosshairs text-rose-500" />
-              Điểm check-in trong chuyến đi:
+      {/* Sáng kiến 1: Thanh hiển thị gọn gàng 1 dòng: Lộ trình check-in đã được gom cụm địa danh thông minh */}
+      {checkInClusters.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-50/70 via-rose-50/50 to-orange-50/70 p-2.5 sm:p-3 rounded-2xl border border-amber-200/80 shadow-xs flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <span className="font-bold text-slate-700 flex items-center gap-1.5 flex-shrink-0 mr-1">
+              <i className="fa-solid fa-route text-rose-500" />
+              <span>Lộ trình ({checkInPhotos.length} điểm):</span>
             </span>
-            {Array.from(
-              new Map(
-                checkInPhotos.map((p) => {
-                  const label = p.locationName || `${p.lat?.toFixed(4)}, ${p.lng?.toFixed(4)}`;
-                  const url =
-                    p.mapUrl ||
-                    (typeof p.lat === 'number'
-                      ? `https://www.google.com/maps?q=${p.lat},${p.lng}`
-                      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(label)}`);
-                  return [label, { label, url }];
-                })
-              ).values()
-            ).map((item) => (
+
+            {checkInClusters.slice(0, 4).map((c) => (
               <a
-                key={item.label}
-                href={item.url}
+                key={c.name}
+                href={c.mapUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-2.5 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold flex items-center gap-1 transition"
+                title={`Nhấn để mở bản đồ ${c.name} (${c.count} ảnh chụp)`}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white hover:bg-rose-50 text-slate-800 hover:text-rose-600 border border-amber-200/90 shadow-2xs font-semibold text-[11px] transition active:scale-95"
               >
-                <i className="fa-solid fa-location-dot text-rose-500" />
-                <span>{item.label}</span>
+                <span>{c.icon || '📍'}</span>
+                <span>{c.name}</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-100/90 text-rose-700 text-[10px] font-bold">
+                  {c.count}
+                </span>
               </a>
             ))}
+
+            {checkInClusters.length > 4 && (
+              <button
+                type="button"
+                onClick={() => setModal('map')}
+                className="px-2.5 py-1 rounded-full bg-white/80 hover:bg-white text-slate-600 hover:text-rose-600 border border-slate-200 text-[11px] font-medium transition active:scale-95"
+              >
+                +{checkInClusters.length - 4} nơi khác...
+              </button>
+            )}
           </div>
+
           <button
             type="button"
             onClick={() => setModal('map')}
-            className="text-xs font-semibold text-amber-700 hover:text-rose-600 flex items-center gap-1"
+            className="text-xs font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1 ml-auto flex-shrink-0 px-2.5 py-1 rounded-lg hover:bg-rose-50 transition"
           >
-            <span>Xem trên Bản đồ chữ S</span>
-            <i className="fa-solid fa-chevron-right text-[10px]" />
+            <span>Bản đồ chữ S</span>
+            <i className="fa-solid fa-arrow-up-right-from-square text-[10px]" />
           </button>
         </div>
       )}
@@ -383,7 +538,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
         </button>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-4.5">
             {visiblePhotos.map((p, i) => (
               <figure
                 key={p._id}
@@ -401,38 +556,38 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                   setDragIdx(null);
                   setDragOverIdx(null);
                 }}
-                style={{ animationDelay: `${Math.min(i, 12) * 30}ms`, transform: `rotate(${((i % 5) - 2) * 0.6}deg)` }}
-                className={`group relative bg-white p-2 pb-3 rounded-xl shadow-sm border transition-all duration-300 animate-fade-up ${
+                style={{ animationDelay: `${Math.min(i, 12) * 30}ms`, transform: `rotate(${((i % 5) - 2) * 0.5}deg)` }}
+                className={`luxury-card group relative p-2.5 pb-3.5 rounded-2xl border transition-all duration-300 animate-fade-up content-visibility-auto ${
                   dragOverIdx === i
-                    ? 'border-2 border-rose-500 scale-105 ring-4 ring-rose-200/60 z-20'
-                    : 'border-slate-200/80 hover:shadow-xl hover:z-10 hover:!rotate-0 hover:scale-[1.03]'
+                    ? 'border-2 border-rose-500 scale-105 ring-4 ring-rose-200/60 z-20 shadow-xl'
+                    : 'border-stone-200/85 hover:border-rose-300 hover:shadow-xl hover:z-10 hover:!rotate-0 hover:scale-[1.02]'
                 } ${dragIdx === i ? 'opacity-40' : ''}`}
               >
-                <button onClick={() => setModal({ lightbox: i })} className="block w-full aspect-square overflow-hidden rounded-lg bg-slate-100">
+                <button onClick={() => setModal({ lightbox: i })} className="block w-full aspect-square overflow-hidden rounded-xl bg-stone-100 shadow-2xs">
                   <LazyImage
                     src={thumb(p.url)}
                     alt={p.caption || 'Ảnh kỷ niệm'}
                     priority={i < 8}
                     wrapperClassName="w-full h-full"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover group-hover:scale-[1.04] transition duration-500 ease-out"
                   />
                 </button>
-                {p.caption && <figcaption className="font-hand text-rose-700 text-sm mt-2 px-1 line-clamp-1">{p.caption}</figcaption>}
-                <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 mt-0.5">
+                {p.caption && <figcaption className="font-hand text-rose-700 text-sm sm:text-base mt-2 px-1 line-clamp-1">{p.caption}</figcaption>}
+                <div className="flex items-center justify-between text-[10px] text-stone-400 font-medium px-1 mt-0.5">
                   <span className="truncate">{p.tags?.length > 0 ? p.tags.map((t) => `#${t}`).join(' ') : p.takenAt || ''}</span>
                   {p.locationName && (
-                    <span className="text-rose-500 truncate ml-1" title={p.locationName}>
+                    <span className="text-rose-500 truncate ml-1 font-semibold" title={p.locationName}>
                       <i className="fa-solid fa-location-dot mr-0.5" />
                       {p.locationName}
                     </span>
                   )}
                 </div>
-                <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                  <button title="Lồng khung" onClick={() => setModal({ frame: p })} className="w-8 h-8 rounded-full bg-white/90 text-amber-600 hover:bg-amber-500 hover:text-white shadow text-xs"><i className="fa-solid fa-paintbrush" /></button>
-                  <button title="Đặt làm ảnh bìa" onClick={() => setCover(p)} className="w-8 h-8 rounded-full bg-white/90 text-sky-600 hover:bg-sky-500 hover:text-white shadow text-xs"><i className="fa-solid fa-image" /></button>
-                  <button title="Xoá" onClick={() => removePhoto(p)} className="w-8 h-8 rounded-full bg-white/90 text-rose-600 hover:bg-rose-600 hover:text-white shadow text-xs"><i className="fa-solid fa-trash" /></button>
+                <div className="absolute top-3.5 right-3.5 flex gap-1.5 opacity-0 group-hover:opacity-100 transition duration-200 z-10">
+                  <button title="Lồng khung nghệ thuật" onClick={() => setModal({ frame: p })} className="w-8 h-8 rounded-full bg-white/95 backdrop-blur-sm text-amber-700 hover:bg-amber-600 hover:text-white shadow-md text-xs flex items-center justify-center transition active:scale-95"><i className="fa-solid fa-paintbrush" /></button>
+                  <button title="Đặt làm ảnh bìa" onClick={() => setCover(p)} className="w-8 h-8 rounded-full bg-white/95 backdrop-blur-sm text-sky-700 hover:bg-sky-600 hover:text-white shadow-md text-xs flex items-center justify-center transition active:scale-95"><i className="fa-solid fa-image" /></button>
+                  <button title="Xoá ảnh" onClick={() => removePhoto(p)} className="w-8 h-8 rounded-full bg-white/95 backdrop-blur-sm text-rose-600 hover:bg-rose-600 hover:text-white shadow-md text-xs flex items-center justify-center transition active:scale-95"><i className="fa-solid fa-trash" /></button>
                 </div>
-                {album.coverPhoto === p.url && <span className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-amber-400 text-[10px] font-bold text-amber-950 shadow">Bìa</span>}
+                {album.coverPhoto === p.url && <span className="absolute top-3.5 left-3.5 px-2.5 py-0.5 rounded-full bg-amber-400 text-[10px] font-bold text-amber-950 shadow-sm z-10">Bìa</span>}
               </figure>
             ))}
           </div>

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
@@ -239,10 +239,29 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   const [pinging, setPinging] = useState(false);
   const [url, setUrl] = useState('');
   const [resolvingLink, setResolvingLink] = useState(false);
-  const [resolvedLinks, setResolvedLinks] = useState([]); // [{ url, thumbUrl, directUrl, source, title, takenAt, lat, lng }]
+  const [resolvedLinks, setResolvedLinks] = useState([]); // [{ url, thumbUrl, directUrl, source, title, takenAt, lat, lng, isVideo, selected, status }]
   const [backupToCloudinary, setBackupToCloudinary] = useState(true); // Tự động sao lưu ảnh từ link iCloud về Cloudinary để không lo hết hạn 30 ngày
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
+
+  // Quản lý trạng thái component mounted để cho phép chạy ngầm không bị warning
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Sáng kiến 4: Thanh tiến trình thời gian thực (Real-time Progress) khi lưu nhiều ảnh
+  const [saveProgress, setSaveProgress] = useState({
+    active: false,
+    total: 0,
+    current: 0,
+    percent: 0,
+    doneCount: 0,
+    currentName: '',
+  });
 
   // Tra cứu tên địa danh từ tọa độ (Reverse Geocoding qua OpenStreetMap)
   const reverseGeocode = async (lat, lng) => {
@@ -649,7 +668,13 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
     setResolvingLink(true);
     try {
       const res = await api.resolvePhotoLinks(raw);
-      const list = res?.photos || [];
+      const rawList = res?.photos || [];
+      const list = rawList.map((x, idx) => ({
+        ...x,
+        id: (x.url || '') + '_' + idx,
+        selected: true,
+        status: 'idle', // 'idle' | 'uploading' | 'done' | 'error'
+      }));
       setResolvedLinks(list);
       if (list.length > 0) {
         const firstWithDate = list.find((x) => x.takenAt);
@@ -679,73 +704,144 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   };
 
   const addByUrl = async () => {
-    let itemsToSave = resolvedLinks;
-    if (!itemsToSave.length) {
+    let itemsToProcess = resolvedLinks;
+    if (!itemsToProcess.length) {
       if (!/^https?:\/\//im.test(url)) return toast('Vui lòng dán đường link hợp lệ', 'error');
-      itemsToSave = await previewShareLinks(url);
+      itemsToProcess = await previewShareLinks(url);
     }
-    if (!itemsToSave.length) return;
+    const selectedItems = itemsToProcess.filter((x) => x.selected !== false);
+    if (!selectedItems.length) {
+      return toast('Vui lòng chọn ít nhất 1 ảnh để thêm', 'error');
+    }
 
     setBusy(true);
+
     try {
-      const payload = [];
-      const queue = [...itemsToSave];
-      const worker = async () => {
+      // BƯỚC 1: Lưu tức thì vào Chuyến Đi (chỉ mất ~0.3-0.5s) bằng đường dẫn ảnh tối ưu
+      const initialPayload = selectedItems.map((item) => {
+        const itemGps =
+          typeof item.lat === 'number' && typeof item.lng === 'number'
+            ? { lat: item.lat, lng: item.lng }
+            : coords;
+        return {
+          url: item.url,
+          publicId: '',
+          caption: caption || item.title || '',
+          tags,
+          takenAt: takenAt || item.takenAt || '',
+          locationName,
+          mapUrl: getComputedMapUrl(itemGps),
+          lat: itemGps?.lat,
+          lng: itemGps?.lng,
+          width: item.width,
+          height: item.height,
+        };
+      });
+
+      const savedDocs = await api.addPhotos(albumId, initialPayload);
+      onUploaded(); // Cập nhật ngay lập tức album để xem được ảnh tức khắc!
+
+      // Nếu người dùng KHÔNG bật sao lưu vĩnh viễn lên Cloudinary: Xong ngay lập tức!
+      if (!backupToCloudinary) {
+        toast(`✨ Đã thêm siêu tốc ${savedDocs.length} ảnh vào chuyến đi 💕`);
+        setUrl('');
+        setResolvedLinks([]);
+        onClose();
+        return;
+      }
+
+      // BƯỚC 2: Nếu bật Sao Lưu Vĩnh Viễn -> Chạy đồng bộ Cloudinary với tiến trình Real-Time (Sáng kiến 4)
+      const total = selectedItems.length;
+      if (isMountedRef.current) {
+        setSaveProgress({
+          active: true,
+          total,
+          current: 0,
+          percent: 0,
+          doneCount: 0,
+          currentName: selectedItems[0]?.title || 'Ảnh 1',
+        });
+      }
+
+      toast(`☁️ Đang sao lưu vĩnh viễn ${total} ảnh về Cloudinary...`);
+
+      // Hàng đợi đồng bộ song song 3 luồng
+      let doneCount = 0;
+      const queue = selectedItems.map((item, idx) => ({
+        item,
+        photoDoc: savedDocs[idx],
+        idx,
+      }));
+
+      const syncWorker = async () => {
         while (queue.length) {
-          const item = queue.shift();
-          const itemGps =
-            typeof item.lat === 'number' && typeof item.lng === 'number'
-              ? { lat: item.lat, lng: item.lng }
-              : coords;
+          const { item, photoDoc, idx } = queue.shift();
+          const targetUrl = item.directUrl || item.url;
 
-          let finalUrl = item.url;
-          let publicId = '';
-          let width = item.width;
-          let height = item.height;
-
-          // Nếu bật "Sao lưu vĩnh viễn lên Cloudinary", gửi thẳng URL gốc (directUrl) để máy chủ Cloudinary tải về lưu trữ vĩnh viễn
-          if (backupToCloudinary && (item.directUrl || /^https?:\/\//i.test(item.url))) {
-            try {
-              const up = await api.uploadToCloudinary(albumId, item.directUrl || item.url);
-              if (up?.url) {
-                finalUrl = up.url;
-                publicId = up.publicId || '';
-                width = up.width || width;
-                height = up.height || height;
-              }
-            } catch {
-              // Nếu Cloudinary chưa cấu hình ở môi trường dev, tự động dùng link proxy nội bộ
-            }
+          // Đánh dấu ảnh đang được tải lên (vòng xoay + viền pulse)
+          if (isMountedRef.current) {
+            setResolvedLinks((prev) =>
+              prev.map((p) => (p.url === item.url ? { ...p, status: 'uploading' } : p))
+            );
+            setSaveProgress((prev) => ({
+              ...prev,
+              current: doneCount + 1,
+              currentName: item.title || `Ảnh ${idx + 1}`,
+            }));
           }
 
-          payload.push({
-            url: finalUrl,
-            publicId,
-            caption: caption || item.title || '',
-            tags,
-            takenAt: takenAt || item.takenAt || '',
-            locationName,
-            mapUrl: getComputedMapUrl(itemGps),
-            lat: itemGps?.lat,
-            lng: itemGps?.lng,
-            width,
-            height,
-          });
+          try {
+            if (/^https?:\/\//i.test(targetUrl) && photoDoc?._id) {
+              const up = await api.uploadToCloudinary(albumId, targetUrl);
+              if (up?.url) {
+                // Cập nhật URL Cloudinary vĩnh viễn vào MongoDB
+                await api.updatePhoto(photoDoc._id, {
+                  url: up.url,
+                  publicId: up.publicId || '',
+                  width: up.width,
+                  height: up.height,
+                });
+              }
+            }
+          } catch (err) {
+            console.warn('Lỗi tải Cloudinary cho ảnh:', item.title, err);
+            // Giữ URL proxy ban đầu nên ảnh vẫn hoạt động bình thường!
+          }
+
+          doneCount++;
+          const percent = Math.round((doneCount / total) * 100);
+
+          // Cập nhật tick xanh ✓ thời gian thực trên ô thumbnail
+          if (isMountedRef.current) {
+            setResolvedLinks((prev) =>
+              prev.map((p) => (p.url === item.url ? { ...p, status: 'done' } : p))
+            );
+            setSaveProgress((prev) => ({
+              ...prev,
+              doneCount,
+              percent,
+              current: doneCount,
+            }));
+          }
         }
       };
 
-      await Promise.all([worker(), worker(), worker(), worker()]);
+      // Chạy 3 luồng song song để vừa nhanh vừa không bị nghẽn mạng thiết bị
+      await Promise.all([syncWorker(), syncWorker(), syncWorker()]);
 
-      await api.addPhotos(albumId, payload);
-      toast(`Đã thêm ${payload.length} ảnh từ ${itemsToSave[0].source || 'liên kết'} 💕`);
-      setUrl('');
-      setResolvedLinks([]);
+      // Khi toàn bộ hoàn tất
       onUploaded();
-      if (!files.length) onClose();
+      toast(`🎉 Đã hoàn tất sao lưu vĩnh viễn ${total} ảnh về Cloudinary! 💕`);
+      if (isMountedRef.current) {
+        setUrl('');
+        setResolvedLinks([]);
+        setSaveProgress((prev) => ({ ...prev, active: false }));
+        onClose();
+      }
     } catch (e) {
       toast(e.message, 'error');
     } finally {
-      setBusy(false);
+      if (isMountedRef.current) setBusy(false);
     }
   };
 
@@ -1068,11 +1164,12 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             <input
               type="checkbox"
               checked={backupToCloudinary}
+              disabled={saveProgress.active}
               onChange={(e) => setBackupToCloudinary(e.target.checked)}
               className="rounded border-rose-300 text-rose-600 focus:ring-rose-400"
             />
             <span>
-              ☁️ <b>Sao lưu vĩnh viễn về Cloudinary</b> (Không lo link iCloud / Quick Share tự hết hạn sau 30 ngày)
+              ☁️ <b>Sao lưu vĩnh viễn về Cloudinary</b> (Khuyên dùng: lưu trữ an toàn dài lâu không lo Apple thu hồi link sau 30 ngày)
             </span>
           </label>
 
@@ -1081,6 +1178,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
               id="photo-url-input"
               rows={2}
               value={url}
+              disabled={saveProgress.active}
               onChange={(e) => {
                 setUrl(e.target.value);
                 if (resolvedLinks.length) setResolvedLinks([]);
@@ -1092,8 +1190,8 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
               <button
                 type="button"
                 onClick={() => previewShareLinks(url)}
-                disabled={resolvingLink || busy || !url.trim()}
-                className="flex-1 px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition disabled:opacity-50"
+                disabled={resolvingLink || busy || !url.trim() || saveProgress.active}
+                className="flex-1 px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition disabled:opacity-50 text-xs min-h-[38px]"
               >
                 <i className={`fa-solid ${resolvingLink ? 'fa-spinner fa-spin' : 'fa-magnifying-glass'}`} />
                 <span>{resolvingLink ? 'Đang quét...' : 'Quét Link'}</span>
@@ -1101,73 +1199,233 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
               <button
                 type="button"
                 onClick={addByUrl}
-                disabled={resolvingLink || busy || (!url.trim() && !resolvedLinks.length)}
-                className="flex-1 px-3.5 py-1.5 bg-slate-900 hover:bg-rose-600 text-white rounded-xl font-semibold flex items-center justify-center gap-1.5 transition disabled:opacity-50"
+                disabled={resolvingLink || busy || (!url.trim() && !resolvedLinks.length) || saveProgress.active}
+                className="flex-1 px-3.5 py-1.5 bg-slate-900 hover:bg-rose-600 text-white rounded-xl font-semibold flex items-center justify-center gap-1.5 transition disabled:opacity-50 text-xs min-h-[38px]"
               >
-                <i className="fa-solid fa-plus" />
-                <span>{resolvedLinks.length > 0 ? `Thêm (${resolvedLinks.length})` : 'Thêm Ngay'}</span>
+                <i className={`fa-solid ${saveProgress.active ? 'fa-spinner fa-spin' : 'fa-plus'}`} />
+                <span>
+                  {saveProgress.active
+                    ? `Đang lưu (${saveProgress.doneCount}/${saveProgress.total})`
+                    : resolvedLinks.length > 0
+                    ? `Thêm (${resolvedLinks.filter((x) => x.selected !== false).length})`
+                    : 'Thêm Ngay'}
+                </span>
               </button>
             </div>
           </div>
 
-          {/* Hiển thị lưới xem trước các ảnh quét được từ Link Drive / Google Photos / iCloud */}
-          {resolvedLinks.length > 0 && (
-            <div className="pt-1 space-y-1.5">
-              <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-emerald-800 font-semibold">
-                <span>
-                  <i className="fa-solid fa-circle-check text-emerald-600 mr-1" />
-                  Đã nhận diện <b>{resolvedLinks.length} tấm</b> từ <b>{resolvedLinks[0]?.source}</b>:
-                </span>
-                <div className="flex items-center gap-2">
-                  {resolvedLinks.some((x) => x.isVideo) && resolvedLinks.some((x) => !x.isVideo) && (
-                    <button
-                      type="button"
-                      onClick={() => setResolvedLinks((prev) => prev.filter((x) => !x.isVideo))}
-                      className="px-2 py-0.5 rounded-full bg-white text-amber-800 border border-amber-300 text-[10px] hover:bg-amber-100"
-                      title="Chỉ giữ lại các bức ảnh chụp tĩnh, bỏ các khung ảnh trích từ video"
-                    >
-                      Chỉ lấy {resolvedLinks.filter((x) => !x.isVideo).length} ảnh tĩnh
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setResolvedLinks([])}
-                    className="text-slate-400 hover:text-rose-600 text-[10px]"
-                  >
-                    Xoá danh sách
-                  </button>
+          {/* Sáng kiến 4: Thanh tiến trình Real-time khi đang sao lưu */}
+          {saveProgress.active && (
+            <div className="bg-gradient-to-r from-rose-50 via-pink-50 to-emerald-50 border border-rose-200/90 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-2 animate-fadeIn">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center text-xs flex-shrink-0 animate-pulse">
+                    <i className="fa-solid fa-cloud-arrow-up" />
+                  </span>
+                  <div className="min-w-0">
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                      Đang sao lưu vĩnh viễn về Cloudinary...
+                    </h4>
+                    <p className="text-[10px] sm:text-[11px] text-slate-500 truncate">
+                      {saveProgress.currentName ? `📸 ${saveProgress.currentName}` : 'Đang đồng bộ 3 luồng song song'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <span className="font-mono font-bold text-rose-600 text-xs sm:text-sm bg-white px-2.5 py-1 rounded-full border border-rose-200 shadow-xs">
+                    {saveProgress.doneCount}/{saveProgress.total} ({saveProgress.percent}%)
+                  </span>
                 </div>
               </div>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-40 overflow-y-auto p-1.5 bg-white rounded-xl border border-amber-200/60">
-                {resolvedLinks.map((item, idx) => (
-                  <div key={item.url + idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
-                    <img
-                      src={item.thumbUrl || item.url}
-                      alt={item.title || ''}
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                    />
-                    {typeof item.lat === 'number' && (
-                      <span className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-emerald-600/90 text-white text-[7px] font-bold">
-                        GPS
-                      </span>
-                    )}
-                    {item.isVideo && (
-                      <span className="absolute bottom-0.5 right-0.5 px-1 py-0.2 rounded bg-black/70 text-amber-300 text-[7px] font-bold">
-                        LIVE/VID
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setResolvedLinks((prev) => prev.filter((_, j) => j !== idx))}
-                      className="absolute top-1 right-1 w-4 h-4 rounded-full bg-black/65 text-white text-[9px] flex items-center justify-center"
-                      title="Bỏ ảnh này"
+
+              {/* Thanh progress bar mượt mà trên mọi màn hình điện thoại */}
+              <div className="w-full h-2.5 bg-slate-200/90 rounded-full overflow-hidden p-0.5">
+                <div
+                  className="h-full bg-gradient-to-r from-rose-500 via-pink-500 to-emerald-500 rounded-full transition-all duration-300 ease-out shadow-xs"
+                  style={{ width: `${Math.max(saveProgress.percent, 4)}%` }}
+                />
+              </div>
+
+              {/* Nút tiện ích cho điện thoại: Xem Album Ngay mà không cần chờ */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                <span className="text-[10px] sm:text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                  <i className="fa-solid fa-circle-check text-emerald-600" />
+                  Đã thêm vào album, đang đồng bộ ảnh gốc...
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast('☁️ Đang tiếp tục sao lưu ngầm... Bạn có thể tự do xem album!');
+                    onClose();
+                  }}
+                  className="text-[11px] sm:text-xs font-semibold px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 hover:border-rose-300 shadow-xs transition flex items-center gap-1 active:scale-95"
+                >
+                  <i className="fa-solid fa-bolt text-amber-500" />
+                  <span>Xem Album Ngay (Chạy Ngầm)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Hiển thị lưới xem trước & bộ chọn ảnh thông minh (Mobile First) */}
+          {resolvedLinks.length > 0 && (
+            <div className="pt-1 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-700 font-semibold">
+                <span className="flex items-center gap-1">
+                  <i className="fa-solid fa-circle-check text-emerald-600" />
+                  <span>
+                    Đã chọn: <b>{resolvedLinks.filter((x) => x.selected !== false).length}/{resolvedLinks.length} tấm</b>
+                  </span>
+                  <span className="text-slate-400 font-normal hidden xs:inline">
+                    (từ {resolvedLinks[0]?.source || 'liên kết'})
+                  </span>
+                </span>
+
+                {/* Các nút thao tác chọn ảnh nhanh - Tối ưu cho màn hình cảm ứng */}
+                <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-[10px]">
+                  {!saveProgress.active && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setResolvedLinks((prev) => prev.map((p) => ({ ...p, selected: true })))
+                        }
+                        className="px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 active:scale-95 transition"
+                        title="Chọn tất cả ảnh"
+                      >
+                        ✓ Tất cả
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setResolvedLinks((prev) => prev.map((p) => ({ ...p, selected: false })))
+                        }
+                        className="px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 active:scale-95 transition"
+                        title="Bỏ chọn tất cả"
+                      >
+                        Bỏ chọn
+                      </button>
+                      {resolvedLinks.some((x) => x.isVideo) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setResolvedLinks((prev) =>
+                              prev.map((p) => ({ ...p, selected: !p.isVideo }))
+                            )
+                          }
+                          className="px-2 py-0.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-medium active:scale-95 transition"
+                          title="Chỉ chọn ảnh tĩnh, bỏ video"
+                        >
+                          Chỉ ảnh tĩnh ({resolvedLinks.filter((x) => !x.isVideo).length})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setResolvedLinks([])}
+                        className="text-slate-400 hover:text-rose-600 px-1.5 py-0.5 active:scale-95 transition"
+                      >
+                        Xoá
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Lưới ảnh với Real-Time Checkmark & Uploading Ring */}
+              <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-6 gap-1.5 sm:gap-2 max-h-48 sm:max-h-56 overflow-y-auto p-1.5 sm:p-2 bg-slate-50/80 rounded-xl border border-slate-200">
+                {resolvedLinks.map((item, idx) => {
+                  const isSelected = item.selected !== false;
+                  const isUploading = item.status === 'uploading';
+                  const isDone = item.status === 'done';
+
+                  return (
+                    <div
+                      key={item.id || item.url + idx}
+                      onClick={() => {
+                        if (saveProgress.active) return;
+                        setResolvedLinks((prev) =>
+                          prev.map((p, j) => (j === idx ? { ...p, selected: !isSelected } : p))
+                        );
+                      }}
+                      className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer select-none transition-all duration-200 group ${
+                        !isSelected ? 'opacity-40 grayscale-75 scale-95' : 'scale-100 shadow-xs'
+                      } ${
+                        isUploading
+                          ? 'ring-2 ring-rose-500 ring-offset-1 ring-offset-white animate-pulse'
+                          : isDone
+                          ? 'ring-2 ring-emerald-500'
+                          : 'hover:ring-2 hover:ring-rose-300'
+                      }`}
                     >
-                      <i className="fa-solid fa-xmark" />
-                    </button>
-                  </div>
-                ))}
+                      <img
+                        src={item.thumbUrl || item.url}
+                        alt={item.title || ''}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+
+                      {/* Checkbox chọn ảnh ở góc trên trái (chỉ hiện khi chưa bấm Lưu) */}
+                      {!saveProgress.active && (
+                        <div className="absolute top-1 left-1 z-10">
+                          <span
+                            className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold transition shadow-sm ${
+                              isSelected
+                                ? 'bg-rose-500 text-white'
+                                : 'bg-black/40 text-transparent border border-white/80'
+                            }`}
+                          >
+                            <i className="fa-solid fa-check" />
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Huy hiệu GPS & Video */}
+                      {typeof item.lat === 'number' && (
+                        <span className="absolute bottom-1 left-1 z-10 px-1 py-0.2 rounded bg-emerald-600/90 text-white text-[7px] sm:text-[8px] font-bold shadow-xs">
+                          GPS
+                        </span>
+                      )}
+                      {item.isVideo && (
+                        <span className="absolute bottom-1 right-1 z-10 px-1 py-0.2 rounded bg-black/75 text-amber-300 text-[7px] sm:text-[8px] font-bold shadow-xs">
+                          VID
+                        </span>
+                      )}
+
+                      {/* Nút xoá ảnh đơn lẻ */}
+                      {!saveProgress.active && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setResolvedLinks((prev) => prev.filter((_, j) => j !== idx));
+                          }}
+                          className="absolute top-1 right-1 z-10 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-black/60 hover:bg-rose-600 text-white text-[9px] sm:text-[10px] flex items-center justify-center opacity-80 group-hover:opacity-100 transition"
+                          title="Bỏ ảnh này"
+                        >
+                          <i className="fa-solid fa-xmark" />
+                        </button>
+                      )}
+
+                      {/* REAL-TIME TRẠNG THÁI: Đang sao lưu */}
+                      {isUploading && (
+                        <div className="absolute inset-0 bg-black/50 backdrop-blur-[0.5px] z-20 flex flex-col items-center justify-center text-white gap-1 animate-fadeIn">
+                          <i className="fa-solid fa-spinner fa-spin text-rose-400 text-sm sm:text-base" />
+                          <span className="text-[8px] sm:text-[9px] font-bold text-rose-200">Đang lưu</span>
+                        </div>
+                      )}
+
+                      {/* REAL-TIME TRẠNG THÁI: Đã hoàn tất (Tick xanh nổi bật) */}
+                      {isDone && (
+                        <div className="absolute inset-0 bg-emerald-950/45 backdrop-blur-[0.5px] z-20 flex items-center justify-center animate-fadeIn">
+                          <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs sm:text-sm font-bold shadow-lg">
+                            <i className="fa-solid fa-check" />
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
