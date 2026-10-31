@@ -11,9 +11,11 @@ const PinModal = lazy(() => import('./components/PinModal.jsx'));
 const AdminModal = lazy(() => import('./components/AdminModal.jsx'));
 const VietnamMapModal = lazy(() => import('./components/VietnamMapModal.jsx'));
 
-/** Router tối giản dựa trên hash: #/ và #/album/:id */
+/** Router tối giản: hỗ trợ cả hash (#/album/:id, #album/:id) và pathname (/album/:id) */
 const parseHash = () => {
-  const m = location.hash.match(/^#\/album\/([a-f0-9]{24})/i);
+  const m =
+    location.hash.match(/^#\/?album\/([a-f0-9]{24})/i) ||
+    location.pathname.match(/^\/?album\/([a-f0-9]{24})/i);
   return m ? m[1] : null;
 };
 

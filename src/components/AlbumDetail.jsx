@@ -214,6 +214,15 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
     return () => observer.disconnect();
   }, [visibleCount, photos.length]);
 
+  // Luôn khai báo đầy đủ các Hook ở đầu Component trước mọi điều kiện return để tuân thủ Rules of Hooks
+  const checkInPhotos = useMemo(
+    () => (photos || []).filter((p) => p && (p.locationName || typeof p.lat === 'number')),
+    [photos]
+  );
+  const checkInClusters = useMemo(() => clusterCheckInPhotos(photos), [photos]);
+  const needPhotos = (fn) => () => (photos.length ? fn() : toast('Album chưa có ảnh nào', 'error'));
+  const visiblePhotos = photos.slice(0, visibleCount);
+
   const saveAlbumInfo = async (e) => {
     e.preventDefault();
     try {
@@ -328,14 +337,6 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
       </div>
     );
   }
-
-  const needPhotos = (fn) => () => (photos.length ? fn() : toast('Album chưa có ảnh nào', 'error'));
-  const visiblePhotos = photos.slice(0, visibleCount);
-  const checkInPhotos = useMemo(
-    () => (photos || []).filter((p) => p && (p.locationName || typeof p.lat === 'number')),
-    [photos]
-  );
-  const checkInClusters = useMemo(() => clusterCheckInPhotos(photos), [photos]);
 
   return (
     <section className="space-y-8 animate-fade-up">
