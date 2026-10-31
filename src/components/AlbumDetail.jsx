@@ -133,6 +133,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
   }, [allAlbums, albumId]);
 
   const [album, setAlbum] = useState(initialAlbum);
+  const [loadError, setLoadError] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [tags, setTags] = useState([]);
   const [tag, setTag] = useState('');
@@ -156,6 +157,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
 
   const load = useCallback(async (useCache = true) => {
     try {
+      setLoadError(null);
       // Tải song song thông tin album và danh sách ảnh (loại bỏ waterfall tuần tự)
       const [a, res] = await Promise.all([
         api.getAlbum(albumId, useCache),
@@ -183,6 +185,7 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
         });
       }
     } catch (e) {
+      setLoadError(e.message || 'Không thể tải thông tin chuyến đi');
       toast(e.message, 'error');
       if (e.status === 404) onBack();
     }
@@ -278,8 +281,53 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
     } catch (e) { toast(e.message, 'error'); }
   };
 
+  if (loadError) {
+    return (
+      <div className="py-20 text-center max-w-md mx-auto space-y-4 animate-fade-in">
+        <div className="w-14 h-14 mx-auto rounded-full bg-rose-100 text-rose-500 flex items-center justify-center text-xl">
+          <i className="fa-solid fa-triangle-exclamation" />
+        </div>
+        <h3 className="font-serif text-lg font-bold text-stone-800">Không tải được chuyến đi</h3>
+        <p className="text-xs text-stone-500">{loadError}</p>
+        <div className="flex gap-2 justify-center pt-2">
+          <button onClick={() => { setLoadError(null); load(false); }} className="btn-rose py-2 px-5 text-xs rounded-full shadow-xs">
+            <i className="fa-solid fa-rotate-right mr-1.5" /> Thử lại
+          </button>
+          <button onClick={onBack} className="py-2 px-4 text-xs rounded-full border border-stone-200 text-stone-600 hover:bg-stone-50">
+            Quay lại
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!album) return <div className="h-64 rounded-3xl bg-slate-200/70 animate-pulse" />;
-  if (!album.unlocked) return null;
+
+  if (!album.unlocked) {
+    return (
+      <div className="py-20 text-center max-w-md mx-auto space-y-4 animate-fade-in bg-white/70 p-8 rounded-3xl border border-rose-100 shadow-sm">
+        <div className="w-16 h-16 mx-auto rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-2xl shadow-xs">
+          <i className="fa-solid fa-lock" />
+        </div>
+        <h2 className="font-editorial text-2xl font-bold text-stone-900">{album.title || 'Chuyến đi đã khoá'}</h2>
+        <p className="text-xs sm:text-sm text-stone-500">
+          Chuyến đi này được bảo vệ bằng mã PIN riêng tư của hai đứa mình 💕
+        </p>
+        <div className="pt-2 flex gap-2 justify-center">
+          <button
+            onClick={() => onLocked?.(album)}
+            className="btn-rose py-2.5 px-6 rounded-full text-xs font-semibold shadow-xs"
+          >
+            <i className="fa-solid fa-key mr-1.5" />
+            Nhập mã PIN để mở khoá
+          </button>
+          <button onClick={onBack} className="py-2.5 px-4 rounded-full border border-stone-200 text-xs font-semibold text-stone-600 hover:bg-stone-50">
+            Quay lại
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const needPhotos = (fn) => () => (photos.length ? fn() : toast('Album chưa có ảnh nào', 'error'));
   const visiblePhotos = photos.slice(0, visibleCount);

@@ -931,7 +931,9 @@ app.post('/api/albums', requireAdmin, h(async (req, res) => {
     isLocked: Boolean(isLocked),
     pinHash: isLocked ? await bcrypt.hash(pin, 10) : undefined,
   });
-  res.status(201).json(publicAlbum(album));
+  // Tự động cấp token mở khoá cho người vừa tạo album (tránh bị khoá oan ngay khi vừa tạo)
+  const token = isLocked ? signAlbumToken(album._id) : undefined;
+  res.status(201).json({ ...publicAlbum(album), token, unlocked: true });
 }));
 
 app.get('/api/albums/:id', h(async (req, res) => {

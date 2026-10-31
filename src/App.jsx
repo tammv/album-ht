@@ -40,10 +40,17 @@ export default function App() {
       .catch(() => {});
   }, [refreshKey]);
 
-  const goHome = () => { location.hash = '#/'; };
+  const goHome = () => {
+    setAlbumId(null);
+    location.hash = '#/';
+  };
   const openAlbum = useCallback((album) => {
-    if (album.isLocked && !isUnlocked(album._id)) setPinAlbum(album);
-    else location.hash = `#/album/${album._id}`;
+    if (album.isLocked && !isUnlocked(album._id)) {
+      setPinAlbum(album);
+    } else {
+      setAlbumId(album._id);
+      location.hash = `#/album/${album._id}`;
+    }
   }, []);
 
   return (
@@ -86,7 +93,13 @@ export default function App() {
         {showNew && (
           <NewAlbumModal
             onClose={() => setShowNew(false)}
-            onCreated={(a) => { setShowNew(false); setRefreshKey((k) => k + 1); location.hash = `#/album/${a._id}`; }}
+            onCreated={(a) => {
+              setShowNew(false);
+              setAllAlbums((prev) => [a, ...prev.filter((x) => x._id !== a._id)]);
+              setRefreshKey((k) => k + 1);
+              setAlbumId(a._id);
+              location.hash = `#/album/${a._id}`;
+            }}
           />
         )}
         {pinAlbum && (
@@ -96,7 +109,8 @@ export default function App() {
             onUnlocked={() => {
               const id = pinAlbum._id;
               setPinAlbum(null);
-              if (albumId === id) setRefreshKey((k) => k + 1);
+              setRefreshKey((k) => k + 1);
+              setAlbumId(id);
               location.hash = `#/album/${id}`;
             }}
           />

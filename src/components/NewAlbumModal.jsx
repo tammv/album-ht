@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { api } from '../api.js';
+import { api, saveToken } from '../api.js';
 import { resolveVietnamLocation } from '../data/vietnam-map-data.js';
 import { useToast } from './Toast.jsx';
 
@@ -22,6 +22,10 @@ export default function NewAlbumModal({ onClose, onCreated }) {
     setSaving(true);
     try {
       const album = await api.createAlbum(form);
+      // Nếu album có khoá PIN, lưu ngay token mở khoá cho chính người tạo
+      if (album?.token) {
+        saveToken(album._id, album.token);
+      }
       toast('Đã tạo chuyến đi mới 💕');
       onCreated(album);
     } catch (err) {
