@@ -277,34 +277,42 @@ export async function resolveICloudSharedLink(shortGUID) {
   });
   const queryUrl = `${databasePartition}/database/1/com.apple.photos.cloud/production/shared/records/query?${params}`;
 
-  // Bước 2: Truy vấn CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted (hỗ trợ phân trang đến 600 mục)
+  // Bước 2: Truy vấn CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted (truy vấn SONG SONG tất cả các trang để tối ưu tốc độ < 2.5s)
   const masters = new Map();
   const assets = [];
-  for (let startRank = 0; startRank < Math.min(totalExpected, 600); startRank += 50) {
-    const qRes = await fetch(queryUrl, {
-      method: 'POST',
-      headers: ckHeaders,
-      body: JSON.stringify({
-        zoneID: info.zoneID,
-        resultsLimit: 100,
-        query: {
-          recordType: 'CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted',
-          filterBy: [
-            { fieldName: 'direction', comparator: 'EQUALS', fieldValue: { value: 'ASCENDING', type: 'STRING' } },
-            { fieldName: 'startRank', comparator: 'EQUALS', fieldValue: { value: startRank, type: 'NUMBER_INT64' } },
-          ],
-        },
-      }),
-    });
-    if (!qRes.ok) break;
-    const qData = await qRes.json();
-    const records = qData?.records || [];
-    if (!records.length) break;
-    for (const rec of records) {
+  const ranks = [];
+  for (let r = 0; r < Math.min(totalExpected, 600); r += 50) {
+    ranks.push(r);
+  }
+
+  const queryPages = await Promise.all(
+    ranks.map((startRank) =>
+      fetch(queryUrl, {
+        method: 'POST',
+        headers: ckHeaders,
+        body: JSON.stringify({
+          zoneID: info.zoneID,
+          resultsLimit: 100,
+          query: {
+            recordType: 'CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted',
+            filterBy: [
+              { fieldName: 'direction', comparator: 'EQUALS', fieldValue: { value: 'ASCENDING', type: 'STRING' } },
+              { fieldName: 'startRank', comparator: 'EQUALS', fieldValue: { value: startRank, type: 'NUMBER_INT64' } },
+            ],
+          },
+        }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)
+    )
+  );
+
+  for (const qData of queryPages) {
+    if (!qData?.records) continue;
+    for (const rec of qData.records) {
       if (rec.recordType === 'CPLMaster') masters.set(rec.recordName, rec);
       else if (rec.recordType === 'CPLAsset') assets.push(rec);
     }
-    if (masters.size >= totalExpected) break;
   }
 
   // Bước 3: Ghép từng CPLAsset với CPLMaster để có đủ URL ảnh JPEG, Ngày chụp & GPS

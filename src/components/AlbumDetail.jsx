@@ -357,14 +357,25 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
             <>
               <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="font-editorial text-2xl sm:text-4xl font-bold text-stone-900 tracking-tight">{album.title}</h1>
-                <button
-                  type="button"
-                  onClick={() => setEditingAlbum(true)}
-                  title="Sửa tên & thông tin chuyến đi"
-                  className="w-7 h-7 rounded-full bg-white hover:bg-rose-50 text-stone-500 hover:text-rose-600 border border-stone-200/80 flex items-center justify-center text-xs transition shadow-2xs"
-                >
-                  <i className="fa-solid fa-pen text-[10px]" />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingAlbum(true)}
+                    title="Sửa tên & thông tin chuyến đi"
+                    className="w-7 h-7 rounded-full bg-white hover:bg-rose-50 text-stone-500 hover:text-rose-600 border border-stone-200/80 flex items-center justify-center text-xs transition shadow-2xs"
+                  >
+                    <i className="fa-solid fa-pen text-[10px]" />
+                  </button>
+                  <button
+                    type="button"
+                    id="delete-album"
+                    onClick={removeAlbum}
+                    title="Xoá vĩnh viễn chuyến đi này"
+                    className="w-7 h-7 rounded-full bg-white hover:bg-rose-50 text-stone-400 hover:text-rose-600 border border-stone-200/80 flex items-center justify-center text-xs transition shadow-2xs"
+                  >
+                    <i className="fa-regular fa-trash-can text-[11px]" />
+                  </button>
+                </div>
                 {album.isLocked && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
                     <i className="fa-solid fa-lock text-[10px] mr-1" />Đã Khóa Bảo Mật
@@ -395,9 +406,9 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
         </div>
 
         {/* Thanh Command Dock Thủy Tinh Mờ (Glassmorphic Command Bar) Thời Thượng & Đa Màn Hình */}
-        <div className="glass-dock p-1.5 sm:p-2 rounded-2xl flex flex-wrap items-center justify-center lg:justify-end gap-1.5 sm:gap-2 shadow-md w-full md:w-auto">
+        <div className="glass-dock p-1.5 sm:p-2 rounded-2xl flex items-center justify-start lg:justify-end gap-1.5 sm:gap-2 shadow-md w-full md:w-auto overflow-x-auto no-scrollbar flex-nowrap flex-shrink-0">
           {/* Nhóm 1: Trải nghiệm & Thưởng thức hành trình */}
-          <div className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 flex-nowrap flex-shrink-0">
             {/* Lật Sách Ảnh 3D */}
             <button
               id="open-flipbook"
@@ -430,10 +441,10 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
             </button>
           </div>
 
-          <div className="hidden xl:block w-[1px] h-6 bg-stone-200/80 mx-0.5" />
+          <div className="w-[1px] h-6 bg-stone-200/80 mx-0.5 flex-shrink-0" />
 
           {/* Nhóm 2: Sáng tạo & Tác vụ chuyến đi */}
-          <div className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 flex-nowrap flex-shrink-0">
             {/* Tạo Bìa Sách AI */}
             <button
               id="open-cover-studio"
@@ -452,16 +463,6 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
             >
               <i className="fa-solid fa-cloud-arrow-up text-xs" />
               <span>Thêm Ảnh</span>
-            </button>
-
-            {/* Xoá Album */}
-            <button
-              id="delete-album"
-              onClick={removeAlbum}
-              title="Xoá chuyến đi này"
-              className="w-8 h-8 rounded-full border border-stone-200 hover:border-rose-200 text-stone-400 hover:text-rose-600 bg-white hover:bg-rose-50 flex items-center justify-center transition shadow-2xs flex-shrink-0 active:scale-95"
-            >
-              <i className="fa-solid fa-trash-can text-xs" />
             </button>
           </div>
         </div>
