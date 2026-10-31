@@ -33,6 +33,12 @@ const photoSchema = new Schema(
     order: { type: Number, default: 0, index: true }, // Thứ tự sắp xếp trang ảnh
     width: Number,
     height: Number,
+    isVideo: { type: Boolean, default: false },
+    videoUrl: { type: String, default: '' },
+    isLivePhoto: { type: Boolean, default: false },
+    livePhotoUrl: { type: String, default: '' },
+    mediaType: { type: String, default: 'image' }, // 'image' | 'video' | 'live_photo'
+    duration: Number,
   },
   { timestamps: true }
 );

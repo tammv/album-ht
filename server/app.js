@@ -4,6 +4,19 @@ import mongoose from 'mongoose';
 import { connectDB } from './db.js';
 import { Album, Photo, normalizeTags, publicAlbum } from './models.js';
 import { signUpload, destroyImages } from './cloudinary.js';
+import {
+  isGoogleDriveConfigured,
+  getDefaultDriveFolderId,
+  createDriveResumableSession,
+  finalizeDriveFile,
+  uploadStreamToGoogleDrive,
+} from './googleDrive.js';
+import {
+  isR2Configured,
+  getR2PublicDomain,
+  createR2PresignedPutUrl,
+  uploadBufferToR2,
+} from './r2.js';
 import { canAccess, signAlbumToken, HttpError } from './auth.js';
 import { recognizeLandmark } from './ai.js';
 
@@ -226,7 +239,7 @@ function extractICloudShortGuid(url) {
 }
 
 /** Gọi trực tiếp CloudKit API của Apple để lấy toàn bộ danh sách ảnh + GPS + Ngày chụp từ shortGUID */
-async function resolveICloudSharedLink(shortGUID) {
+export async function resolveICloudSharedLink(shortGUID) {
   const cached = icloudShareCache.get(shortGUID);
   if (cached && cached.expiresAt > Date.now()) {
     return cached;
@@ -264,10 +277,10 @@ async function resolveICloudSharedLink(shortGUID) {
   });
   const queryUrl = `${databasePartition}/database/1/com.apple.photos.cloud/production/shared/records/query?${params}`;
 
-  // Bước 2: Truy vấn CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted (hỗ trợ phân trang nếu > 50 mục)
+  // Bước 2: Truy vấn CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted (hỗ trợ phân trang đến 600 mục)
   const masters = new Map();
   const assets = [];
-  for (let startRank = 0; startRank < Math.min(totalExpected, 150); startRank += 50) {
+  for (let startRank = 0; startRank < Math.min(totalExpected, 600); startRank += 50) {
     const qRes = await fetch(queryUrl, {
       method: 'POST',
       headers: ckHeaders,
@@ -305,23 +318,22 @@ async function resolveICloudSharedLink(shortGUID) {
     const mf = master.fields || {};
     const af = asset?.fields || {};
 
-    const fullDl =
-      mf.resJPEGFullRes?.value?.downloadURL ||
-      mf.resJPEGMedRes?.value?.downloadURL ||
-      (mf.resOriginalFileType?.value === 'public.jpeg' ? mf.resOriginalRes?.value?.downloadURL : '') ||
-      mf.resJPEGThumbRes?.value?.downloadURL;
+    const rawFileType = String(mf.resOriginalFileType?.value || '').toLowerCase();
+    const isVideo =
+      rawFileType === 'com.apple.quicktime-movie' ||
+      rawFileType === 'public.mpeg-4' ||
+      rawFileType.includes('video') ||
+      rawFileType.includes('mp4') ||
+      (Boolean(mf.resVidFullRes) && !mf.resJPEGFullRes);
 
-    const thumbDl = mf.resJPEGThumbRes?.value?.downloadURL || fullDl;
-    if (!fullDl) return;
+    // Live Photo: có cặp id pairing hoặc có resVidMedRes / resVidSmallRes / resOriginalVidComplRes song song với ảnh
+    const isLivePhoto =
+      !isVideo &&
+      (Boolean(af.livePhotoPairingIdentifier?.value) ||
+        Boolean(mf.resVidMedRes?.value?.downloadURL) ||
+        Boolean(mf.resVidSmallRes?.value?.downloadURL) ||
+        Boolean(mf.resOriginalVidComplRes?.value?.downloadURL));
 
-    const medUrl = fullDl.replace('${f}', 'photo.jpg');
-    const thumbUrl = (thumbDl || fullDl).replace('${f}', 'thumb.jpg');
-    byRecord.set(master.recordName, { medUrl, thumbUrl });
-
-    const ts = af.assetDate?.value || mf.originalCreationDate?.value;
-    const takenAt = ts ? new Date(Number(ts)).toLocaleDateString('vi-VN') : '';
-    const gps = parseAppleBplistGps(af.locationEnc?.value);
-    const isVideo = mf.resOriginalFileType?.value === 'com.apple.quicktime-movie';
     let filename = '';
     if (mf.filenameEnc?.value) {
       try {
@@ -334,13 +346,49 @@ async function resolveICloudSharedLink(shortGUID) {
       }
     }
 
+    // Video stream URL (cho Video hoặc phần chuyển động của Live Photo)
+    const rawVideoDl =
+      (isVideo && mf.resOriginalRes?.value?.downloadURL) ||
+      mf.resOriginalVidComplRes?.value?.downloadURL ||
+      mf.resVidMedRes?.value?.downloadURL ||
+      mf.resVidSmallRes?.value?.downloadURL ||
+      (isVideo && mf.resVidFullRes?.value?.downloadURL);
+
+    // Ảnh JPEG hiển thị / poster
+    const fullDl =
+      mf.resJPEGFullRes?.value?.downloadURL ||
+      mf.resJPEGMedRes?.value?.downloadURL ||
+      (rawFileType === 'public.jpeg' ? mf.resOriginalRes?.value?.downloadURL : '') ||
+      mf.resJPEGThumbRes?.value?.downloadURL ||
+      rawVideoDl;
+
+    const thumbDl = mf.resJPEGThumbRes?.value?.downloadURL || fullDl;
+    if (!fullDl && !rawVideoDl) return;
+
+    const medUrl = fullDl
+      ? fullDl.replace('${f}', isVideo && !mf.resJPEGFullRes ? (filename || 'video.mp4') : 'photo.jpg')
+      : '';
+    const thumbUrl = (thumbDl || fullDl || '').replace('${f}', 'thumb.jpg');
+    const videoFilename = isVideo
+      ? (filename || 'video.mp4')
+      : (filename ? filename.replace(/\.[^.]+$/, '.mov') : 'live.mov');
+    const videoUrl = rawVideoDl ? rawVideoDl.replace('${f}', videoFilename) : '';
+
+    byRecord.set(master.recordName, { medUrl, thumbUrl, videoUrl });
+
+    const ts = af.assetDate?.value || mf.originalCreationDate?.value;
+    const takenAt = ts ? new Date(Number(ts)).toLocaleDateString('vi-VN') : '';
+    const gps = parseAppleBplistGps(af.locationEnc?.value);
+
     // Dùng query param (?guid=...&record=...) vì recordName của Apple là Base64 có chứa dấu '/' và '+'
     const proxyBase = `/api/icloud/asset?guid=${encodeURIComponent(shortGUID)}&record=${encodeURIComponent(master.recordName)}`;
 
     items.push({
       url: proxyBase,
       thumbUrl: `${proxyBase}&size=thumb`,
+      videoUrl: isVideo || isLivePhoto ? `${proxyBase}&type=video` : undefined,
       directUrl: medUrl,
+      directVideoUrl: videoUrl || undefined,
       title: filename ? filename.replace(/\.[^.]+$/, '') : '',
       filename,
       takenAt,
@@ -349,6 +397,7 @@ async function resolveICloudSharedLink(shortGUID) {
       width: mf.resJPEGMedWidth?.value || mf.resOriginalWidth?.value,
       height: mf.resJPEGMedHeight?.value || mf.resOriginalHeight?.value,
       isVideo,
+      isLivePhoto,
       source: 'Apple iCloud Link',
     });
   };
@@ -439,20 +488,42 @@ async function resolveICloudSharedAlbumStream(albumToken) {
   for (const p of photos) {
     const derivatives = Object.values(p.derivatives || {});
     if (!derivatives.length) continue;
-    // Sắp xếp theo chiều rộng giảm dần để lấy bản nét nhất và bản thu nhỏ (thumb)
-    const sorted = derivatives
-      .filter((d) => d?.checksum && urlItems[d.checksum])
+
+    // Kiểm tra Video trong iCloud Shared Album: có key '720p', '360p', '1080p' hoặc p.isMovie / p.mediaAssetType === 'video'
+    const isVideo = Boolean(
+      p.isMovie ||
+      p.mediaAssetType === 'video' ||
+      p.derivatives?.['720p'] ||
+      p.derivatives?.['360p'] ||
+      p.derivatives?.['1080p']
+    );
+
+    const vidDeriv =
+      p.derivatives?.['1080p'] ||
+      p.derivatives?.['720p'] ||
+      p.derivatives?.['360p'];
+
+    let videoUrl = '';
+    if (vidDeriv && urlItems[vidDeriv.checksum]) {
+      const vidInfo = urlItems[vidDeriv.checksum];
+      videoUrl = `https://${vidInfo.url_location}${vidInfo.url_path}`;
+    }
+
+    // Sắp xếp các derivative ảnh theo chiều rộng giảm dần để lấy bản nét nhất và bản thu nhỏ (thumb)
+    const imgDerivatives = derivatives
+      .filter((d) => d?.checksum && urlItems[d.checksum] && d !== vidDeriv)
       .sort((a, b) => Number(b.width || 0) - Number(a.width || 0));
-    if (!sorted.length) continue;
 
-    const best = sorted[0];
-    const smallest = sorted[sorted.length - 1] || best;
-    const bestInfo = urlItems[best.checksum];
-    const thumbInfo = urlItems[smallest.checksum] || bestInfo;
+    const best = imgDerivatives[0] || (vidDeriv ? null : derivatives.find((d) => d?.checksum && urlItems[d.checksum]));
+    if (!best && !videoUrl) continue;
 
-    const medUrl = `https://${bestInfo.url_location}${bestInfo.url_path}`;
-    const thumbUrl = `https://${thumbInfo.url_location}${thumbInfo.url_path}`;
-    byGuid.set(p.photoGuid, { medUrl, thumbUrl });
+    const smallest = imgDerivatives[imgDerivatives.length - 1] || best;
+    const bestInfo = best ? urlItems[best.checksum] : null;
+    const thumbInfo = smallest ? urlItems[smallest.checksum] : bestInfo;
+
+    const medUrl = bestInfo ? `https://${bestInfo.url_location}${bestInfo.url_path}` : videoUrl;
+    const thumbUrl = thumbInfo ? `https://${thumbInfo.url_location}${thumbInfo.url_path}` : medUrl;
+    byGuid.set(p.photoGuid, { medUrl, thumbUrl, videoUrl });
 
     const takenAt = p.dateCreated ? new Date(p.dateCreated).toLocaleDateString('vi-VN') : '';
     const proxyBase = `/api/icloud/asset?album=${encodeURIComponent(albumToken)}&guid=${encodeURIComponent(p.photoGuid)}`;
@@ -460,11 +531,15 @@ async function resolveICloudSharedAlbumStream(albumToken) {
     items.push({
       url: proxyBase,
       thumbUrl: `${proxyBase}&size=thumb`,
+      videoUrl: videoUrl ? `${proxyBase}&type=video` : undefined,
       directUrl: medUrl,
+      directVideoUrl: videoUrl || undefined,
       title: p.caption || '',
       takenAt,
-      width: Number(best.width) || undefined,
-      height: Number(best.height) || undefined,
+      width: Number(best?.width) || undefined,
+      height: Number(best?.height) || undefined,
+      isVideo,
+      isLivePhoto: false,
       source: 'iCloud Shared Album',
     });
   }
@@ -482,9 +557,11 @@ async function resolveICloudSharedAlbumStream(albumToken) {
  * Route Proxy/Redirect thông minh cho cả 2 chuẩn iCloud:
  * - iCloud Link (icloud.com/photos/#/icloudlinks/<shortGUID>) -> ?guid=<shortGUID>&record=<recordName>
  * - iCloud Shared Album (icloud.com/sharedalbum/#<albumToken>) -> ?album=<albumToken>&guid=<photoGuid>
+ * Hỗ trợ tham số ?type=video để stream/chuyển hướng sang clip video gốc!
  */
 const handleICloudAssetRedirect = h(async (req, res) => {
-  const size = req.query.size === 'thumb' ? 'thumbUrl' : 'medUrl';
+  const isVideoReq = req.query.type === 'video';
+  const size = req.query.size === 'thumb' ? 'thumbUrl' : isVideoReq ? 'videoUrl' : 'medUrl';
   const wantProxy = req.query.proxy === '1';
 
   let targetUrl = '';
@@ -492,27 +569,27 @@ const handleICloudAssetRedirect = h(async (req, res) => {
   if (req.query.album && req.query.guid) {
     const resolved = await resolveICloudSharedAlbumStream(String(req.query.album));
     const rec = resolved?.byGuid?.get(String(req.query.guid));
-    targetUrl = rec?.[size] || rec?.medUrl || '';
+    targetUrl = rec?.[size] || (isVideoReq ? rec?.videoUrl : '') || rec?.medUrl || '';
   } else {
     // Chuẩn 1: iCloud Link (query params hoặc path params)
     const shortGUID = String(req.query.guid || req.params.shortGUID || '');
     const recordName = String(req.query.record || req.params.recordName || '');
     const resolved = await resolveICloudSharedLink(shortGUID);
     const rec = resolved?.byRecord?.get(recordName);
-    targetUrl = rec?.[size] || rec?.medUrl || '';
+    targetUrl = rec?.[size] || (isVideoReq ? rec?.videoUrl : '') || rec?.medUrl || '';
   }
 
   if (!targetUrl) {
-    throw new HttpError(404, 'Không tìm thấy ảnh từ liên kết iCloud');
+    throw new HttpError(404, 'Không tìm thấy ảnh hoặc video từ liên kết iCloud');
   }
 
   // Nếu vẽ lên HTML5 Canvas (CoverStudio / FrameWorkshop), stream qua server kèm CORS header để không bị lỗi Tainted Canvas
   if (wantProxy) {
     const upstream = await fetch(targetUrl);
-    if (!upstream.ok) throw new HttpError(502, 'Không tải được dữ liệu ảnh từ iCloud');
+    if (!upstream.ok) throw new HttpError(502, 'Không tải được dữ liệu tệp từ iCloud');
     const buf = await upstream.arrayBuffer();
     res.set('Access-Control-Allow-Origin', '*');
-    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
+    res.set('Content-Type', upstream.headers.get('content-type') || (isVideoReq ? 'video/mp4' : 'image/jpeg'));
     res.set('Cache-Control', 'public, max-age=3600');
     return res.send(Buffer.from(buf));
   }
@@ -921,6 +998,87 @@ app.post('/api/albums/:id/upload-signature', requireAdmin, h(async (req, res) =>
   res.json(signUpload(album._id));
 }));
 
+// ---------- Google Drive API Integration (File nặng / Video dài / Backup khi Cloudinary lỗi) ----------
+app.get('/api/drive/status', (_req, res) => {
+  res.json({
+    configured: isGoogleDriveConfigured(),
+    folderId: getDefaultDriveFolderId(),
+  });
+});
+
+app.post('/api/drive/upload-session', requireAdmin, h(async (req, res) => {
+  if (!isGoogleDriveConfigured()) {
+    throw new HttpError(400, 'Chưa cấu hình Google Drive API trên máy chủ (cần GOOGLE_SERVICE_ACCOUNT_KEY)');
+  }
+  const { filename, mimeType, size, folderId } = req.body || {};
+  const session = await createDriveResumableSession({ filename, mimeType, size, folderId });
+  res.json(session);
+}));
+
+app.post('/api/drive/finalize', requireAdmin, h(async (req, res) => {
+  const { fileId } = req.body || {};
+  if (!fileId) throw new HttpError(400, 'Thiếu fileId từ Google Drive');
+  const finalized = await finalizeDriveFile(fileId);
+  res.json(finalized);
+}));
+
+app.post('/api/drive/transfer-from-url', requireAdmin, h(async (req, res) => {
+  if (!isGoogleDriveConfigured()) {
+    throw new HttpError(400, 'Chưa cấu hình Google Drive API trên máy chủ');
+  }
+  const { sourceUrl, filename, mimeType, folderId } = req.body || {};
+  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) {
+    throw new HttpError(400, 'URL nguồn không hợp lệ');
+  }
+  const upstream = await fetch(sourceUrl);
+  if (!upstream.ok) throw new HttpError(502, 'Không tải được file từ URL nguồn');
+  const buf = Buffer.from(await upstream.arrayBuffer());
+  const finalized = await uploadStreamToGoogleDrive({
+    streamOrBuffer: buf,
+    filename: filename || 'file.mp4',
+    mimeType: mimeType || upstream.headers.get('content-type') || 'video/mp4',
+    folderId,
+  });
+  res.json(finalized);
+}));
+
+// ---------- Cloudflare R2 Integration (10GB Free, 0đ Egress Bandwidth, Direct CDN Video Streaming) ----------
+app.get('/api/r2/status', (_req, res) => {
+  res.json({
+    configured: isR2Configured(),
+    publicDomain: getR2PublicDomain(),
+  });
+});
+
+app.post('/api/r2/presigned-url', requireAdmin, h(async (req, res) => {
+  if (!isR2Configured()) {
+    throw new HttpError(400, 'Chưa cấu hình Cloudflare R2 trên máy chủ');
+  }
+  const { filename, mimeType, key } = req.body || {};
+  const session = createR2PresignedPutUrl({ filename, mimeType, key });
+  res.json(session);
+}));
+
+app.post('/api/r2/transfer-from-url', requireAdmin, h(async (req, res) => {
+  if (!isR2Configured()) {
+    throw new HttpError(400, 'Chưa cấu hình Cloudflare R2 trên máy chủ');
+  }
+  const { sourceUrl, filename, mimeType, key } = req.body || {};
+  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) {
+    throw new HttpError(400, 'URL nguồn không hợp lệ');
+  }
+  const upstream = await fetch(sourceUrl);
+  if (!upstream.ok) throw new HttpError(502, 'Không tải được file từ URL nguồn');
+  const buf = Buffer.from(await upstream.arrayBuffer());
+  const finalized = await uploadBufferToR2({
+    buffer: buf,
+    filename: filename || 'video.mp4',
+    mimeType: mimeType || upstream.headers.get('content-type') || 'video/mp4',
+    key,
+  });
+  res.json(finalized);
+}));
+
 /** Lưu metadata ảnh (sau khi upload Cloudinary xong, hoặc ảnh bằng URL ngoài). */
 app.post('/api/albums/:id/photos', requireAdmin, h(async (req, res) => {
   const album = await findAlbum(req.params.id);
@@ -943,8 +1101,14 @@ app.post('/api/albums/:id/photos', requireAdmin, h(async (req, res) => {
       order: baseOrder + idx,
       width: p.width,
       height: p.height,
+      isVideo: Boolean(p.isVideo),
+      videoUrl: p.videoUrl ? String(p.videoUrl).trim() : '',
+      isLivePhoto: Boolean(p.isLivePhoto),
+      livePhotoUrl: p.livePhotoUrl ? String(p.livePhotoUrl).trim() : '',
+      mediaType: p.isVideo ? 'video' : p.isLivePhoto ? 'live_photo' : 'image',
+      duration: typeof p.duration === 'number' ? p.duration : undefined,
     }));
-  if (!docs.length) throw new HttpError(400, 'Không có ảnh hợp lệ');
+  if (!docs.length) throw new HttpError(400, 'Không có ảnh hoặc video hợp lệ');
   const created = await Photo.insertMany(docs);
   album.photoCount += created.length;
   if (!album.coverPhoto) album.coverPhoto = created[0].url;
@@ -967,6 +1131,12 @@ app.patch('/api/photos/:id', requireAdmin, h(async (req, res) => {
   if ('publicId' in req.body) photo.publicId = String(req.body.publicId || '');
   if ('width' in req.body) photo.width = req.body.width;
   if ('height' in req.body) photo.height = req.body.height;
+  if ('isVideo' in req.body) photo.isVideo = Boolean(req.body.isVideo);
+  if ('videoUrl' in req.body) photo.videoUrl = String(req.body.videoUrl || '').trim();
+  if ('isLivePhoto' in req.body) photo.isLivePhoto = Boolean(req.body.isLivePhoto);
+  if ('livePhotoUrl' in req.body) photo.livePhotoUrl = String(req.body.livePhotoUrl || '').trim();
+  if ('mediaType' in req.body) photo.mediaType = String(req.body.mediaType || 'image');
+  if ('duration' in req.body) photo.duration = typeof req.body.duration === 'number' ? req.body.duration : undefined;
   await photo.save();
   res.json(photo);
 }));

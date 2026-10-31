@@ -6,10 +6,169 @@ import MusicPlayer from './MusicPlayer.jsx';
 const TAPES = ['washi-tape-strip', 'washi-tape-rose', 'washi-tape-teal'];
 
 /**
+ * Trình phát đa phương tiện nhúng thông minh trong từng trang sách ảnh:
+ * - Hỗ trợ Ảnh tĩnh (LQIP + lazy load)
+ * - Hỗ trợ Video (Cloudflare R2, Cloudinary, Google Drive, iCloud) phát trực tiếp trên trang sách!
+ * - Hỗ trợ Live Photo (nút [LIVE] chuẩn iOS để xem khoảnh khắc chuyển động)
+ */
+function FlipbookMedia({ photo, className = '', containerClassName = '' }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [livePlaying, setLivePlaying] = useState(false);
+
+  if (!photo) return null;
+
+  const isVid = Boolean(photo.isVideo || (photo.videoUrl && !photo.isLivePhoto));
+  const isLive = Boolean(photo.isLivePhoto || photo.livePhotoUrl);
+  const videoSrc = photo.videoUrl || photo.url;
+  const isGoogleDrive = videoSrc?.includes('drive.google.com/file/d/');
+
+  if (isVid) {
+    if (isPlaying) {
+      if (isGoogleDrive) {
+        return (
+          <div className={`relative w-full h-full bg-black/95 rounded-lg overflow-hidden ${containerClassName}`}>
+            <iframe
+              src={videoSrc.replace('/view', '/preview')}
+              title={photo.caption || 'Video'}
+              allow="autoplay; fullscreen"
+              allowFullScreen
+              className="w-full h-full border-0"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsPlaying(false);
+              }}
+              className="absolute top-2 right-2 z-30 w-7 h-7 rounded-full bg-black/75 hover:bg-rose-600 text-white flex items-center justify-center text-xs transition shadow-md"
+              title="Đóng video"
+            >
+              <i className="fa-solid fa-xmark" />
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <div className={`relative w-full h-full bg-black/95 rounded-lg overflow-hidden flex items-center justify-center ${containerClassName}`}>
+          <video
+            src={videoSrc}
+            controls
+            autoPlay
+            playsInline
+            className={`w-full h-full object-contain ${className}`}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsPlaying(false);
+            }}
+            className="absolute top-2 right-2 z-30 w-7 h-7 rounded-full bg-black/75 hover:bg-rose-600 text-white flex items-center justify-center text-xs transition shadow-md"
+            title="Đóng video"
+          >
+            <i className="fa-solid fa-xmark" />
+          </button>
+        </div>
+      );
+    }
+
+    // Trạng thái chờ phát: Poster + Nút Play thuỷ tinh vàng gold lộng lẫy
+    return (
+      <div
+        className={`group/flipvid relative w-full h-full overflow-hidden cursor-pointer select-none ${containerClassName}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsPlaying(true);
+        }}
+        title="Nhấn để phát video trực tiếp trên trang sách"
+      >
+        <img
+          src={optimized(photo.url)}
+          alt={photo.caption || 'Video'}
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className={`w-full h-full object-cover transition-transform duration-500 group-hover/flipvid:scale-105 ${className}`}
+          draggable={false}
+        />
+        {/* Nút Play trung tâm */}
+        <div className="absolute inset-0 bg-black/20 group-hover/flipvid:bg-black/35 transition-all flex items-center justify-center">
+          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-amber-500 via-amber-400 to-amber-200 text-stone-900 flex items-center justify-center shadow-2xl group-hover/flipvid:scale-110 group-active/flipvid:scale-95 transition-all duration-300 pl-1 ring-4 ring-white/70">
+            <i className="fa-solid fa-play text-sm sm:text-xl text-stone-900 drop-shadow-xs" />
+          </div>
+        </div>
+        {/* Huy hiệu Video */}
+        <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-amber-300 text-[10px] font-semibold flex items-center gap-1 shadow-md">
+          <i className="fa-solid fa-film text-[8px]" />
+          <span>Video</span>
+        </span>
+      </div>
+    );
+  }
+
+  if (isLive) {
+    const liveSrc = photo.livePhotoUrl || photo.videoUrl;
+    return (
+      <div className={`relative w-full h-full overflow-hidden select-none ${containerClassName}`}>
+        {livePlaying && liveSrc ? (
+          <video
+            src={liveSrc}
+            autoPlay
+            loop
+            playsInline
+            className={`w-full h-full object-cover ${className}`}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <img
+            src={optimized(photo.url)}
+            alt={photo.caption || ''}
+            decoding="async"
+            referrerPolicy="no-referrer"
+            className={`w-full h-full object-cover ${className}`}
+            draggable={false}
+          />
+        )}
+        {/* Nút bấm Apple LIVE */}
+        {liveSrc && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLivePlaying(!livePlaying);
+            }}
+            className={`absolute top-2 left-2 z-10 px-2 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-md transition-all shadow-md flex items-center gap-1 active:scale-95 ${livePlaying
+                ? 'bg-rose-500 text-white ring-2 ring-white/60 shadow-rose-500/40'
+                : 'bg-black/60 hover:bg-black/80 text-white/95 border border-white/20'
+              }`}
+            title="Nhấn để phát chuyển động Live Photo"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${livePlaying ? 'bg-white animate-ping' : 'bg-rose-400'}`} />
+            <span>LIVE</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={optimized(photo.url)}
+      alt={photo.caption || ''}
+      decoding="async"
+      referrerPolicy="no-referrer"
+      className={`w-full h-full object-cover select-none ${className}`}
+      draggable={false}
+    />
+  );
+}
+
+/**
  * Hiển thị nội dung một trang sách:
  * - 'cover': Bìa sách dọc 3:4 (hiển thị trọn vẹn 100% không cắt xén)
- * - 'bleed': 1 ảnh tràn viền sang trọng
- * - 'polaroid': 1 ảnh scrapbook dán băng keo washi
+ * - 'bleed': 1 ảnh tràn viền sang trọng (hỗ trợ phát Video / Live Photo trực tiếp)
+ * - 'polaroid': 1 ảnh scrapbook dán băng keo washi (hỗ trợ phát Video / Live Photo)
  * - 'collage_3': 3 ảnh nghệ thuật (1 ảnh lớn + 2 ảnh nhỏ)
  * - 'end': Trang kết thúc hành trình
  */
@@ -81,23 +240,20 @@ function PageContent({ page, side, layoutStyle }) {
   const { photos = [], pageIndex = 1 } = page;
   const currentLayout = page.layout || layoutStyle || 'auto';
 
-  // ===== BỐ CỤC 1: FULL BLEED (1 HÌNH TRÀN VIỀN) =====
+  // ===== BỐ CỤC 1: FULL BLEED (1 HÌNH/VIDEO TRÀN VIỀN) =====
   if (currentLayout === 'bleed' || (currentLayout === 'auto' && page.layout === 'bleed')) {
     const p = photos[0];
     if (!p) return null;
     return (
       <div className="h-full w-full relative flex flex-col justify-between p-2 sm:p-4 bg-[#FAF6EE] overflow-hidden">
         <div className="relative flex-grow w-full h-full rounded-xl overflow-hidden bg-slate-100 shadow-md">
-          <img
-            src={optimized(p.url)}
-            alt={p.caption || ''}
-            decoding="async"
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover select-none"
-            draggable={false}
+          <FlipbookMedia
+            photo={p}
+            containerClassName="w-full h-full"
+            className="w-full h-full object-cover"
           />
           {p.caption && (
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 pt-6 text-white text-center">
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 pt-6 text-white text-center pointer-events-none">
               <p className="font-hand text-lg sm:text-xl drop-shadow">{p.caption}</p>
             </div>
           )}
@@ -117,18 +273,24 @@ function PageContent({ page, side, layoutStyle }) {
         <div className="grid grid-cols-12 gap-2 sm:gap-3 flex-grow">
           {/* Ảnh lớn bên trái */}
           <div className="col-span-7 h-full flex flex-col">
-            <div className="relative flex-grow rounded-xl overflow-hidden bg-white p-1.5 shadow-md">
-              <img src={optimized(p1.url)} alt="" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-lg" draggable={false} />
+            <div className="relative flex-grow rounded-xl overflow-hidden bg-white p-1.5 shadow-md flex flex-col">
+              <div className="relative flex-grow rounded-lg overflow-hidden">
+                <FlipbookMedia photo={p1} containerClassName="w-full h-full" />
+              </div>
               {p1.caption && <p className="font-hand text-rose-700 text-xs sm:text-sm text-center mt-1 truncate">{p1.caption}</p>}
             </div>
           </div>
           {/* 2 ảnh nhỏ bên phải */}
           <div className="col-span-5 flex flex-col gap-2 h-full">
             <div className="relative h-1/2 rounded-xl overflow-hidden bg-white p-1.5 shadow-sm -rotate-1">
-              <img src={optimized(p2.url)} alt="" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <div className="relative w-full h-full rounded-lg overflow-hidden">
+                <FlipbookMedia photo={p2} containerClassName="w-full h-full" />
+              </div>
             </div>
             <div className="relative h-1/2 rounded-xl overflow-hidden bg-white p-1.5 shadow-sm rotate-2">
-              <img src={optimized(p3.url)} alt="" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-lg" draggable={false} />
+              <div className="relative w-full h-full rounded-lg overflow-hidden">
+                <FlipbookMedia photo={p3} containerClassName="w-full h-full" />
+              </div>
             </div>
           </div>
         </div>
@@ -144,20 +306,16 @@ function PageContent({ page, side, layoutStyle }) {
     <div className="h-full w-full flex flex-col justify-between items-center p-3 sm:p-6 bg-[#FAF6EE] relative">
       <div className="flex-grow flex items-center justify-center w-full">
         <div
-          className={`relative bg-white p-2.5 sm:p-4 pb-8 sm:pb-12 shadow-xl border border-stone-200/60 max-w-[92%] transition-transform duration-300 ${
-            side === 'left' ? '-rotate-1 hover:rotate-0' : 'rotate-1 hover:rotate-0'
-          }`}
+          className={`relative bg-white p-2.5 sm:p-4 pb-8 sm:pb-12 shadow-xl border border-stone-200/60 max-w-[92%] transition-transform duration-300 ${side === 'left' ? '-rotate-1 hover:rotate-0' : 'rotate-1 hover:rotate-0'
+            }`}
         >
           {/* Băng dính Washi Tape trang trí */}
           <div className={`absolute -top-3 left-1/2 -translate-x-1/2 w-16 sm:w-24 h-5 sm:h-6 rotate-[-3deg] z-10 ${TAPES[pageIndex % 3]}`} />
-          <div className="overflow-hidden rounded-sm bg-slate-100">
-            <img
-              src={optimized(photo.url)}
-              alt={photo.caption || ''}
-              decoding="async"
-              referrerPolicy="no-referrer"
-              className="max-h-[220px] sm:max-h-[340px] md:max-h-[380px] w-auto object-contain mx-auto select-none"
-              draggable={false}
+          <div className="overflow-hidden rounded-sm bg-slate-100 min-h-[160px] flex items-center justify-center">
+            <FlipbookMedia
+              photo={photo}
+              containerClassName="max-h-[220px] sm:max-h-[340px] md:max-h-[380px] w-full min-w-[200px]"
+              className="max-h-[220px] sm:max-h-[340px] md:max-h-[380px] w-auto object-contain mx-auto"
             />
           </div>
           {photo.caption && (
@@ -229,11 +387,24 @@ export default function Flipbook({ album, photos = [], onClose }) {
         });
       });
     } else {
-      // Chế độ 'auto' xen kẽ nghệ thuật
+      // Chế độ 'auto' xen kẽ nghệ thuật: Nếu là video thì luôn dành trọn 1 trang to rõ (bleed hoặc polaroid)!
       let photoIdx = 0;
       let counter = 1;
       while (photoIdx < photos.length) {
-        if (counter % 3 === 0 && photos.length - photoIdx >= 3) {
+        const currentP = photos[photoIdx];
+        if (currentP.isVideo) {
+          innerPages.push({
+            type: 'photo',
+            photos: [currentP],
+            layout: 'bleed',
+            pageIndex: counter++,
+          });
+          photoIdx += 1;
+        } else if (
+          counter % 3 === 0 &&
+          photos.length - photoIdx >= 3 &&
+          !photos.slice(photoIdx, photoIdx + 3).some((x) => x.isVideo)
+        ) {
           innerPages.push({
             type: 'photo',
             photos: photos.slice(photoIdx, photoIdx + 3),
@@ -244,7 +415,7 @@ export default function Flipbook({ album, photos = [], onClose }) {
         } else if (counter % 2 === 1) {
           innerPages.push({
             type: 'photo',
-            photos: [photos[photoIdx]],
+            photos: [currentP],
             layout: 'bleed',
             pageIndex: counter++,
           });
@@ -252,7 +423,7 @@ export default function Flipbook({ album, photos = [], onClose }) {
         } else {
           innerPages.push({
             type: 'photo',
-            photos: [photos[photoIdx]],
+            photos: [currentP],
             layout: 'polaroid',
             pageIndex: counter++,
           });

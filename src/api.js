@@ -117,28 +117,147 @@ export const api = {
       .catch(() => {});
   },
 
-  /** Upload 1 file thẳng lên Cloudinary bằng chữ ký từ server. */
-  async uploadToCloudinary(albumId, file, onProgress) {
+  /** Upload 1 file hoặc URL ảnh/video thẳng lên Cloudinary bằng chữ ký từ server. */
+  async uploadToCloudinary(albumId, fileOrUrl, onProgress, isVideo = false) {
     const sig = await request(`/albums/${albumId}/upload-signature`, { method: 'POST' });
     const form = new FormData();
-    form.append('file', file);
+    form.append('file', fileOrUrl);
     form.append('api_key', sig.apiKey);
     form.append('timestamp', sig.timestamp);
     form.append('signature', sig.signature);
     form.append('folder', sig.folder);
 
+    const isVid =
+      isVideo ||
+      (typeof fileOrUrl === 'object' && fileOrUrl?.type?.startsWith('video/')) ||
+      (typeof fileOrUrl === 'string' && /\.(mp4|mov|webm|m4v)(\?|$)/i.test(fileOrUrl));
+    const endpoint = isVid ? 'video' : 'auto';
+
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `https://api.cloudinary.com/v1_1/${sig.cloudName}/image/upload`);
+      xhr.open('POST', `https://api.cloudinary.com/v1_1/${sig.cloudName}/${endpoint}/upload`);
       xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
       xhr.onload = () => {
         const data = JSON.parse(xhr.responseText || '{}');
         if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({ url: data.secure_url, publicId: data.public_id, width: data.width, height: data.height });
+          const isResVideo = data.resource_type === 'video' || isVid;
+          resolve({
+            url: data.secure_url,
+            publicId: data.public_id,
+            width: data.width,
+            height: data.height,
+            isVideo: isResVideo,
+            videoUrl: isResVideo ? data.secure_url : undefined,
+            duration: data.duration,
+            thumbUrl: isResVideo ? data.secure_url.replace(/\.[^.]+$/, '.jpg') : data.secure_url,
+          });
         } else reject(new Error(data.error?.message || 'Upload Cloudinary thất bại'));
       };
       xhr.onerror = () => reject(new Error('Mất kết nối khi upload'));
       xhr.send(form);
+    });
+  },
+
+  /** Kiểm tra trạng thái cấu hình Google Drive API trên máy chủ. */
+  async getDriveStatus() {
+    return request('/drive/status').catch(() => ({ configured: false }));
+  },
+
+  /**
+   * Tải thẳng tệp lớn (video/ảnh nặng) từ trình duyệt lên Google Drive qua Resumable Upload
+   * Vừa có thanh tiến trình thời gian thực, vừa không bị giới hạn 4.5MB của serverless!
+   */
+  async uploadToGoogleDrive(file, onProgress) {
+    const session = await request('/drive/upload-session', {
+      method: 'POST',
+      body: {
+        filename: file.name,
+        mimeType: file.type || 'video/mp4',
+        size: file.size,
+      },
+    });
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', session.uploadUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+      xhr.onload = async () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const driveData = JSON.parse(xhr.responseText || '{}');
+            const finalized = await request('/drive/finalize', {
+              method: 'POST',
+              body: { fileId: driveData.id },
+            });
+            resolve(finalized);
+          } catch (e) {
+            reject(e);
+          }
+        } else {
+          reject(new Error(`Tải lên Google Drive thất bại: HTTP ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Mất kết nối khi tải lên Google Drive'));
+      xhr.send(file);
+    });
+  },
+
+  /** Chuyển trực tiếp URL từ server sang Google Drive */
+  async transferUrlToGoogleDrive(sourceUrl, filename, mimeType) {
+    return request('/drive/transfer-from-url', {
+      method: 'POST',
+      body: { sourceUrl, filename, mimeType },
+    });
+  },
+
+  /** Kiểm tra cấu hình Cloudflare R2 trên máy chủ */
+  async getR2Status() {
+    return request('/r2/status').catch(() => ({ configured: false }));
+  },
+
+  /**
+   * Tải thẳng tệp lớn lên Cloudflare R2 qua Presigned PUT URL.
+   * Hoàn toàn không mất phí tải về (0đ Egress), không bắt đăng nhập và hỗ trợ tua video tức thì!
+   */
+  async uploadToR2(file, onProgress) {
+    const session = await request('/r2/presigned-url', {
+      method: 'POST',
+      body: {
+        filename: file.name,
+        mimeType: file.type || 'video/mp4',
+      },
+    });
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', session.uploadUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const isVid = (file.type || '').startsWith('video/') || /\.(mp4|mov|webm|m4v)$/i.test(file.name);
+          resolve({
+            url: session.publicUrl,
+            publicId: session.key,
+            isVideo: isVid,
+            videoUrl: isVid ? session.publicUrl : undefined,
+            thumbUrl: session.publicUrl,
+          });
+        } else {
+          reject(new Error(`Tải lên Cloudflare R2 thất bại: HTTP ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Mất kết nối khi tải lên Cloudflare R2'));
+      xhr.send(file);
+    });
+  },
+
+  /** Chuyển trực tiếp URL từ server sang Cloudflare R2 */
+  async transferUrlToR2(sourceUrl, filename, mimeType) {
+    return request('/r2/transfer-from-url', {
+      method: 'POST',
+      body: { sourceUrl, filename, mimeType },
     });
   },
 };
@@ -149,6 +268,9 @@ export const api = {
 export const blurPreview = (url) => {
   if (!url) return '';
   if (url.includes('res.cloudinary.com')) {
+    if (url.includes('/video/upload/')) {
+      return url.replace('/video/upload/', '/video/upload/c_limit,w_36,e_blur:200,q_auto:low,f_auto/').replace(/\.[^.]+$/, '.jpg');
+    }
     return url.replace('/upload/', '/upload/c_limit,w_36,e_blur:200,q_auto:low,f_auto/');
   }
   if (url.includes('lh3.googleusercontent.com')) {
@@ -168,6 +290,9 @@ export const thumb = (url, w = 480) => {
     return `${clean}${clean.includes('?') ? '&' : '?'}size=thumb`;
   }
   if (url.includes('res.cloudinary.com')) {
+    if (url.includes('/video/upload/')) {
+      return url.replace('/video/upload/', `/video/upload/c_fill,w_${w},h_${w},q_auto:eco,f_auto,fl_progressive/`).replace(/\.[^.]+$/, '.jpg');
+    }
     return url.replace('/upload/', `/upload/c_fill,w_${w},h_${w},q_auto:eco,f_auto,fl_progressive/`);
   }
   if (url.includes('lh3.googleusercontent.com')) {

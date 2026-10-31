@@ -8,15 +8,18 @@ const MAX_RAW_MOBILE_MB = 35; // Cho phép chọn ảnh gốc tới 35MB từ đ
 
 function isImageFile(file) {
   if (!file) return false;
-  if (file.type && file.type.startsWith('image/')) return true;
-  return /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name || '');
+  if (file.type && (file.type.startsWith('image/') || file.type.startsWith('video/'))) return true;
+  return /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp|mp4|mov|webm|m4v)$/i.test(file.name || '');
 }
 
 /**
  * Tự động nén thông minh trên trình duyệt nếu ảnh chụp từ điện thoại (iPhone 48MP / Samsung 50MP) nặng > 8.5MB.
+ * Bỏ qua video để giữ nguyên chất lượng.
  * Được gọi SAU KHI đã đọc EXIF để bảo toàn 100% Ngày chụp & Tọa độ GPS gốc.
  */
 async function compressMobileImageIfNeeded(file) {
+  if (file.type && file.type.startsWith('video/')) return file;
+  if (/\.(mp4|mov|webm|m4v)$/i.test(file.name || '')) return file;
   if (file.size <= 8.5 * 1024 * 1024) return file;
   try {
     const bitmapUrl = URL.createObjectURL(file);
@@ -241,6 +244,8 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   const [resolvingLink, setResolvingLink] = useState(false);
   const [resolvedLinks, setResolvedLinks] = useState([]); // [{ url, thumbUrl, directUrl, source, title, takenAt, lat, lng, isVideo, selected, status }]
   const [backupToCloudinary, setBackupToCloudinary] = useState(true); // Tự động sao lưu ảnh từ link iCloud về Cloudinary để không lo hết hạn 30 ngày
+  const [driveConfigured, setDriveConfigured] = useState(false); // Trạng thái sẵn sàng của Google Drive API
+  const [r2Configured, setR2Configured] = useState(false); // Trạng thái sẵn sàng của Cloudflare R2
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
 
@@ -248,6 +253,12 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
+    api.getDriveStatus().then((st) => {
+      if (isMountedRef.current) setDriveConfigured(Boolean(st?.configured));
+    });
+    api.getR2Status().then((st) => {
+      if (isMountedRef.current) setR2Configured(Boolean(st?.configured));
+    });
     return () => {
       isMountedRef.current = false;
     };
@@ -624,10 +635,67 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
         const f = queue.shift();
         try {
           patch(f.i, { status: 'uploading' });
-          const r = await api.uploadToCloudinary(albumId, f.file, (p) => patch(f.i, { progress: p }));
+          const isVid = f.file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/i.test(f.file.name || '');
+          const isHeavy = f.file.size > 15 * 1024 * 1024;
+          let r;
+
+          // BẬC 1: Nếu file nặng > 15MB hoặc là video và Cloudflare R2 đã cấu hình -> Ưu tiên R2 (0đ Egress, không hỏi đăng nhập)
+          if ((isHeavy || isVid) && r2Configured) {
+            try {
+              r = await api.uploadToR2(f.file, (p) => patch(f.i, { progress: p }));
+            } catch (r2Err) {
+              console.warn('[Upload] R2 quá dung lượng hoặc lỗi, tự động chuyển về Google Drive:', r2Err);
+              if (driveConfigured) {
+                toast(`⚠️ Cloudflare R2 đầy/lỗi, đang tự động chuyển sang Google Drive cho ${f.file.name}...`);
+              }
+            }
+          }
+
+          // BẬC 2: Nếu chưa tải được (hoặc R2 bị đầy/lỗi) và Google Drive đã cấu hình -> Tải thẳng lên Google Drive
+          if (!r && (isHeavy || isVid) && driveConfigured) {
+            try {
+              r = await api.uploadToGoogleDrive(f.file, (p) => patch(f.i, { progress: p }));
+            } catch (driveErr) {
+              console.warn('[Upload] Google Drive lỗi, tự động chuyển về Cloudinary:', driveErr);
+            }
+          }
+
+          // BẬC 3: Nếu chưa tải qua R2/Drive hoặc là ảnh thường -> Tải qua Cloudinary
+          if (!r) {
+            try {
+              r = await api.uploadToCloudinary(albumId, f.file, (p) => patch(f.i, { progress: p }), isVid);
+            } catch (cloudErr) {
+              // Nếu Cloudinary bị lỗi/hết quota -> Tự động Fallback sang R2, nếu R2 đầy thì sang Google Drive!
+              if (r2Configured) {
+                try {
+                  toast(`☁️ Cloudinary lỗi, đang thử lưu sang Cloudflare R2 cho ${f.file.name}...`);
+                  r = await api.uploadToR2(f.file, (p) => patch(f.i, { progress: p }));
+                } catch (r2Err2) {
+                  if (driveConfigured) {
+                    toast(`⚠️ R2 cũng đầy, đang tự động chuyển về Google Drive cho ${f.file.name}...`);
+                    r = await api.uploadToGoogleDrive(f.file, (p) => patch(f.i, { progress: p }));
+                  } else {
+                    throw r2Err2;
+                  }
+                }
+              } else if (driveConfigured) {
+                toast(`☁️ Cloudinary lỗi, đang chuyển sang lưu trữ Google Drive cho ${f.file.name}...`);
+                r = await api.uploadToGoogleDrive(f.file, (p) => patch(f.i, { progress: p }));
+              } else {
+                throw cloudErr;
+              }
+            }
+          }
+
           const activeGps = f.gps || coords;
           saved.push({
-            ...r,
+            url: r.isVideo ? (r.thumbUrl || r.url) : r.url,
+            publicId: r.publicId || '',
+            width: r.width,
+            height: r.height,
+            isVideo: Boolean(r.isVideo),
+            videoUrl: r.isVideo ? (r.viewUrl || r.url) : '',
+            duration: r.duration,
             caption,
             tags,
             takenAt: takenAt || f.takenAt || '',
@@ -689,9 +757,11 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             if (!locationName) setLocationName(label);
           });
         }
+        const videoCount = list.filter((x) => x.isVideo || x.isLivePhoto).length;
         toast(
-          `✨ Đã quét được ${list.length} tấm từ ${list[0].source || 'đường link'}${firstWithGps ? ' (kèm tọa độ GPS & Ngày chụp gốc!)' : '!'
-          }`
+          `✨ Đã quét được ${list.length} mục từ ${list[0].source || 'đường link'}${
+            videoCount ? ` (gồm ${videoCount} video/Live Photo 🎬)` : ''
+          }${firstWithGps ? ' kèm tọa độ GPS & Ngày chụp gốc!' : '!'}`
         );
       }
       return list;
@@ -735,6 +805,10 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           lng: itemGps?.lng,
           width: item.width,
           height: item.height,
+          isVideo: Boolean(item.isVideo),
+          videoUrl: item.videoUrl || '',
+          isLivePhoto: Boolean(item.isLivePhoto),
+          livePhotoUrl: item.livePhotoUrl || item.videoUrl || '',
         };
       });
 
@@ -743,7 +817,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
 
       // Nếu người dùng KHÔNG bật sao lưu vĩnh viễn lên Cloudinary: Xong ngay lập tức!
       if (!backupToCloudinary) {
-        toast(`✨ Đã thêm siêu tốc ${savedDocs.length} ảnh vào chuyến đi 💕`);
+        toast(`✨ Đã thêm siêu tốc ${savedDocs.length} mục vào chuyến đi 💕`);
         setUrl('');
         setResolvedLinks([]);
         onClose();
@@ -759,11 +833,11 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
           current: 0,
           percent: 0,
           doneCount: 0,
-          currentName: selectedItems[0]?.title || 'Ảnh 1',
+          currentName: selectedItems[0]?.title || 'Tệp 1',
         });
       }
 
-      toast(`☁️ Đang sao lưu vĩnh viễn ${total} ảnh về Cloudinary...`);
+      toast(`☁️ Đang sao lưu vĩnh viễn ${total} ảnh/video về Cloudinary...`);
 
       // Hàng đợi đồng bộ song song 3 luồng
       let doneCount = 0;
@@ -776,9 +850,12 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
       const syncWorker = async () => {
         while (queue.length) {
           const { item, photoDoc, idx } = queue.shift();
-          const targetUrl = item.directUrl || item.url;
+          const isItemVideo = Boolean(item.isVideo);
+          const targetUrl = isItemVideo && item.directVideoUrl
+            ? item.directVideoUrl
+            : item.directUrl || item.url;
 
-          // Đánh dấu ảnh đang được tải lên (vòng xoay + viền pulse)
+          // Đánh dấu mục đang được tải lên (vòng xoay + viền pulse)
           if (isMountedRef.current) {
             setResolvedLinks((prev) =>
               prev.map((p) => (p.url === item.url ? { ...p, status: 'uploading' } : p))
@@ -786,26 +863,71 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             setSaveProgress((prev) => ({
               ...prev,
               current: doneCount + 1,
-              currentName: item.title || `Ảnh ${idx + 1}`,
+              currentName: item.title || `Tệp ${idx + 1}`,
             }));
           }
 
           try {
             if (/^https?:\/\//i.test(targetUrl) && photoDoc?._id) {
-              const up = await api.uploadToCloudinary(albumId, targetUrl);
+              let up;
+              // BẬC 1: Nếu là video và Cloudflare R2 sẵn sàng: Chuyển thẳng về R2 (0đ Egress, phát trực tiếp)
+              if (isItemVideo && r2Configured) {
+                try {
+                  up = await api.transferUrlToR2(targetUrl, item.title || `video_${Date.now()}.mp4`, 'video/mp4');
+                } catch (r2Err) {
+                  console.warn('[Sync] R2 quá dung lượng hoặc lỗi, tự động chuyển sang Google Drive:', r2Err);
+                  if (driveConfigured) {
+                    try {
+                      up = await api.transferUrlToGoogleDrive(targetUrl, item.title || `video_${Date.now()}.mp4`, 'video/mp4');
+                    } catch (driveErr) {
+                      console.warn('[Sync] Cả R2 và Google Drive đều lỗi, thử tiếp Cloudinary:', driveErr);
+                    }
+                  }
+                }
+              }
+
+              // BẬC 2: Nếu chưa lưu được qua R2 hoặc Drive -> Thử Cloudinary
+              if (!up) {
+                try {
+                  up = await api.uploadToCloudinary(albumId, targetUrl, null, isItemVideo);
+                } catch (cloudErr) {
+                  // Nếu Cloudinary cũng lỗi: Thử R2 -> nếu R2 đầy thì chuyển sang Google Drive!
+                  if (r2Configured && isItemVideo) {
+                    try {
+                      up = await api.transferUrlToR2(targetUrl, item.title || `video_${Date.now()}.mp4`, 'video/mp4');
+                    } catch (r2Err2) {
+                      if (driveConfigured) {
+                        up = await api.transferUrlToGoogleDrive(targetUrl, item.title || `video_${Date.now()}.mp4`, 'video/mp4');
+                      } else {
+                        throw r2Err2;
+                      }
+                    }
+                  } else if (driveConfigured && isItemVideo) {
+                    up = await api.transferUrlToGoogleDrive(targetUrl, item.title || `video_${Date.now()}.mp4`, 'video/mp4');
+                  } else {
+                    throw cloudErr;
+                  }
+                }
+              }
+
               if (up?.url) {
-                // Cập nhật URL Cloudinary vĩnh viễn vào MongoDB
+                // Cập nhật URL lưu trữ vĩnh viễn vào MongoDB
                 await api.updatePhoto(photoDoc._id, {
-                  url: up.url,
+                  url: isItemVideo ? (up.thumbUrl || up.url) : up.url,
+                  videoUrl: isItemVideo ? (up.viewUrl || up.url) : (item.videoUrl || ''),
+                  isVideo: isItemVideo,
+                  isLivePhoto: Boolean(item.isLivePhoto),
+                  livePhotoUrl: item.isLivePhoto ? up.url : (item.livePhotoUrl || ''),
                   publicId: up.publicId || '',
                   width: up.width,
                   height: up.height,
+                  duration: up.duration,
                 });
               }
             }
           } catch (err) {
-            console.warn('Lỗi tải Cloudinary cho ảnh:', item.title, err);
-            // Giữ URL proxy ban đầu nên ảnh vẫn hoạt động bình thường!
+            console.warn('Lỗi tải sao lưu cho ảnh/video:', item.title, err);
+            // Giữ URL proxy ban đầu nên ảnh/video vẫn hoạt động bình thường!
           }
 
           doneCount++;
@@ -905,7 +1027,7 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             id="file-input"
             type="file"
             multiple
-            accept="image/*,.heic,.heif,.avif"
+            accept="image/*,video/*,.heic,.heif,.avif,.mov,.mp4"
             className="hidden"
             onChange={(e) => {
               addFiles(e.target.files);
@@ -1160,18 +1282,34 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
             Dán link <b>Apple iCloud</b> (Link <code>icloudlinks</code> hoặc <code>sharedalbum</code>), <b>Google Drive</b> (1 ảnh hoặc cả thư mục), <b>Google Photos / Quick Share</b> (Android) hoặc nhiều link ảnh:
           </p>
 
-          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={backupToCloudinary}
-              disabled={saveProgress.active}
-              onChange={(e) => setBackupToCloudinary(e.target.checked)}
-              className="rounded border-rose-300 text-rose-600 focus:ring-rose-400"
-            />
-            <span>
-              ☁️ <b>Sao lưu vĩnh viễn về Cloudinary</b> (Khuyên dùng: lưu trữ an toàn dài lâu không lo Apple thu hồi link sau 30 ngày)
-            </span>
-          </label>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={backupToCloudinary}
+                disabled={saveProgress.active}
+                onChange={(e) => setBackupToCloudinary(e.target.checked)}
+                className="rounded border-rose-300 text-rose-600 focus:ring-rose-400"
+              />
+              <span>
+                ☁️ <b>Sao lưu vĩnh viễn</b> (Khuyên dùng: giữ ảnh/video an toàn, tự động điều phối file nặng)
+              </span>
+            </label>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {r2Configured && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-semibold flex items-center gap-1">
+                  <i className="fa-solid fa-bolt text-amber-600" />
+                  Cloudflare R2: Sẵn sàng
+                </span>
+              )}
+              {driveConfigured && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-semibold flex items-center gap-1">
+                  <i className="fa-brands fa-google-drive text-emerald-600" />
+                  Google Drive: Sẵn sàng
+                </span>
+              )}
+            </div>
+          </div>
 
           <div className="flex flex-col sm:flex-row gap-2">
             <textarea
@@ -1380,15 +1518,20 @@ export default function UploadModal({ albumId, onClose, onUploaded }) {
                         </div>
                       )}
 
-                      {/* Huy hiệu GPS & Video */}
+                      {/* Huy hiệu GPS, Video & Live Photo */}
                       {typeof item.lat === 'number' && (
                         <span className="absolute bottom-1 left-1 z-10 px-1 py-0.2 rounded bg-emerald-600/90 text-white text-[7px] sm:text-[8px] font-bold shadow-xs">
                           GPS
                         </span>
                       )}
                       {item.isVideo && (
-                        <span className="absolute bottom-1 right-1 z-10 px-1 py-0.2 rounded bg-black/75 text-amber-300 text-[7px] sm:text-[8px] font-bold shadow-xs">
-                          VID
+                        <span className="absolute bottom-1 right-1 z-10 px-1.5 py-0.5 rounded bg-black/80 text-amber-300 text-[8px] sm:text-[9px] font-bold shadow-xs flex items-center gap-1">
+                          <i className="fa-solid fa-video text-[7px]" /> Video
+                        </span>
+                      )}
+                      {item.isLivePhoto && (
+                        <span className="absolute bottom-1 right-1 z-10 px-1.5 py-0.5 rounded bg-rose-600/90 text-white text-[8px] sm:text-[9px] font-bold shadow-xs flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Live
                         </span>
                       )}
 

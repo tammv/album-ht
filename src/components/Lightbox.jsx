@@ -8,13 +8,21 @@ export default function Lightbox({ photos = [], start = 0, autoPlay = false, tit
   const toast = useToast();
   const [i, setI] = useState(start);
   const [playing, setPlaying] = useState(autoPlay);
+  const [livePlaying, setLivePlaying] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ caption: '', tags: '' });
   const touchStartX = useRef(null);
   const p = photos[i];
 
-  const next = useCallback(() => setI((v) => (v + 1) % photos.length), [photos.length]);
-  const prev = useCallback(() => setI((v) => (v - 1 + photos.length) % photos.length), [photos.length]);
+  const next = useCallback(() => {
+    setLivePlaying(false);
+    setI((v) => (v + 1) % photos.length);
+  }, [photos.length]);
+
+  const prev = useCallback(() => {
+    setLivePlaying(false);
+    setI((v) => (v - 1 + photos.length) % photos.length);
+  }, [photos.length]);
 
   useEffect(() => {
     if (i >= photos.length) setI(Math.max(0, photos.length - 1));
@@ -162,21 +170,71 @@ export default function Lightbox({ photos = [], start = 0, autoPlay = false, tit
           </>
         )}
 
-        <div className="text-center w-full max-h-[78vh] flex flex-col items-center justify-center">
-          <img
-            key={p._id}
-            src={optimized(p.url)}
-            alt={p.caption || 'Ảnh kỷ niệm'}
-            decoding="async"
-            referrerPolicy="no-referrer"
-            style={{
-              backgroundImage: `url("${thumb(p.url)}")`,
-              backgroundSize: 'contain',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-            }}
-            className="max-h-[64vh] sm:max-h-[72vh] max-w-[92vw] rounded-2xl shadow-2xl mx-auto object-contain transition-all duration-300"
-          />
+        <div className="relative text-center w-full max-h-[78vh] flex flex-col items-center justify-center">
+          {/* Huy hiệu & Nút bật chuyển động cho Apple Live Photo */}
+          {p.isLivePhoto && (p.livePhotoUrl || p.videoUrl) && (
+            <button
+              type="button"
+              onClick={() => setLivePlaying(!livePlaying)}
+              className={`absolute top-2 left-4 sm:top-4 sm:left-8 z-30 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md transition-all shadow-lg active:scale-95 ${
+                livePlaying
+                  ? 'bg-rose-500 text-white shadow-rose-500/40 ring-2 ring-white/60'
+                  : 'bg-black/60 hover:bg-black/80 text-white/95 border border-white/20'
+              }`}
+              title="Chạm để phát chuyển động Live Photo"
+            >
+              <span className={`w-2 h-2 rounded-full ${livePlaying ? 'bg-white animate-ping' : 'bg-rose-400'}`} />
+              <span className="font-bold tracking-wider">LIVE</span>
+              <span className="text-[10px] opacity-80">{livePlaying ? 'Đang phát' : 'Xem'}</span>
+            </button>
+          )}
+
+          {p.isVideo ? (
+            p.videoUrl?.includes('drive.google.com/file/d/') ? (
+              <iframe
+                key={p._id || p.videoUrl}
+                src={p.videoUrl.replace('/view', '/preview')}
+                title={p.caption || 'Video Google Drive'}
+                allow="autoplay; encrypted-media; fullscreen"
+                allowFullScreen
+                className="w-full max-w-4xl aspect-video rounded-2xl shadow-2xl mx-auto border-0 bg-black/80"
+              />
+            ) : (
+              <video
+                key={p._id || p.videoUrl || p.url}
+                src={p.videoUrl || p.url}
+                poster={thumb(p.url)}
+                controls
+                autoPlay
+                playsInline
+                className="max-h-[64vh] sm:max-h-[72vh] max-w-[92vw] rounded-2xl shadow-2xl mx-auto object-contain transition-all duration-300 bg-black/60"
+              />
+            )
+          ) : livePlaying && (p.livePhotoUrl || p.videoUrl) ? (
+            <video
+              key={`live-${p._id || p.livePhotoUrl}`}
+              src={p.livePhotoUrl || p.videoUrl}
+              autoPlay
+              loop
+              playsInline
+              className="max-h-[64vh] sm:max-h-[72vh] max-w-[92vw] rounded-2xl shadow-2xl mx-auto object-contain transition-all duration-300 bg-black/40"
+            />
+          ) : (
+            <img
+              key={p._id}
+              src={optimized(p.url)}
+              alt={p.caption || 'Ảnh kỷ niệm'}
+              decoding="async"
+              referrerPolicy="no-referrer"
+              style={{
+                backgroundImage: `url("${thumb(p.url)}")`,
+                backgroundSize: 'contain',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+              }}
+              className="max-h-[64vh] sm:max-h-[72vh] max-w-[92vw] rounded-2xl shadow-2xl mx-auto object-contain transition-all duration-300"
+            />
+          )}
 
           {editing ? (
             <form onSubmit={saveEdit} className="mt-3 flex flex-col gap-2 max-w-lg w-full px-2">

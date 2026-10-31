@@ -12,8 +12,8 @@ function geoDistanceKm(lat1, lon1, lat2, lon2) {
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -394,70 +394,76 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
           )}
         </div>
 
-        {/* Thanh Command Dock Thủy Tinh Mờ (Glassmorphic Command Bar) Thời Thượng */}
-        <div className="glass-dock p-2 sm:p-2.5 rounded-2xl sm:rounded-full flex flex-wrap items-center justify-center sm:justify-start gap-1.5 sm:gap-2 shadow-md">
-          {/* Lật Sách Ảnh 3D */}
-          <button
-            id="open-flipbook"
-            onClick={needPhotos(() => setModal('flip'))}
-            className="px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 hover:opacity-95 text-white text-xs sm:text-sm font-semibold shadow-xs transition active:scale-95 flex items-center gap-1.5"
-          >
-            <i className="fa-solid fa-book-open text-xs" />
-            <span>Lật Sách Ảnh</span>
-          </button>
+        {/* Thanh Command Dock Thủy Tinh Mờ (Glassmorphic Command Bar) Thời Thượng & Đa Màn Hình */}
+        <div className="glass-dock p-1.5 sm:p-2 rounded-2xl flex flex-wrap items-center justify-center lg:justify-end gap-1.5 sm:gap-2 shadow-md w-full md:w-auto">
+          {/* Nhóm 1: Trải nghiệm & Thưởng thức hành trình */}
+          <div className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 flex-shrink-0">
+            {/* Lật Sách Ảnh 3D */}
+            <button
+              id="open-flipbook"
+              onClick={needPhotos(() => setModal('flip'))}
+              className="px-3.5 sm:px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 hover:opacity-95 text-white text-xs sm:text-sm font-semibold shadow-xs transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <i className="fa-solid fa-book-open text-xs" />
+              <span>Lật Sách Ảnh</span>
+            </button>
 
-          {/* Trình Chiếu */}
-          <button
-            id="open-slideshow"
-            onClick={needPhotos(() => setModal({ lightbox: 0, play: true }))}
-            className="px-3.5 py-2 rounded-full bg-stone-900 hover:bg-stone-800 text-white text-xs sm:text-sm font-semibold shadow-xs transition active:scale-95 flex items-center gap-1.5"
-          >
-            <i className="fa-solid fa-play text-xs text-rose-300" />
-            <span>Trình Chiếu</span>
-          </button>
+            {/* Trình Chiếu */}
+            <button
+              id="open-slideshow"
+              onClick={needPhotos(() => setModal({ lightbox: 0, play: true }))}
+              className="px-3 sm:px-3.5 py-2 rounded-full bg-stone-900 hover:bg-stone-800 text-white text-xs sm:text-sm font-semibold shadow-xs transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <i className="fa-solid fa-play text-xs text-rose-300" />
+              <span>Trình Chiếu</span>
+            </button>
 
-          {/* Tạo Bìa Sách AI */}
-          <button
-            id="open-cover-studio"
-            onClick={() => setModal('cover')}
-            className="px-3.5 py-2 rounded-full bg-white hover:bg-purple-50 text-purple-700 border border-purple-200/90 text-xs sm:text-sm font-semibold shadow-2xs transition active:scale-95 flex items-center gap-1.5"
-          >
-            <i className="fa-solid fa-wand-magic-sparkles text-purple-500 text-xs" />
-            <span>Tạo Bìa AI</span>
-          </button>
+            {/* Bản Đồ Điểm Đến */}
+            <button
+              id="open-map-detail"
+              type="button"
+              onClick={() => setModal('map')}
+              className="px-3 sm:px-3.5 py-2 rounded-full bg-white hover:bg-amber-50 text-amber-800 border border-amber-200/90 text-xs sm:text-sm font-semibold shadow-2xs transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <i className="fa-solid fa-map-location-dot text-rose-500 text-xs" />
+              <span>Bản Đồ{checkInPhotos.length > 0 ? ` (${checkInPhotos.length})` : ''}</span>
+            </button>
+          </div>
 
-          {/* Bản Đồ Điểm Đến */}
-          <button
-            id="open-map-detail"
-            type="button"
-            onClick={() => setModal('map')}
-            className="px-3.5 py-2 rounded-full bg-white hover:bg-amber-50 text-amber-800 border border-amber-200/90 text-xs sm:text-sm font-semibold shadow-2xs transition active:scale-95 flex items-center gap-1.5"
-          >
-            <i className="fa-solid fa-map-location-dot text-rose-500 text-xs" />
-            <span>Bản Đồ{checkInPhotos.length > 0 ? ` (${checkInPhotos.length})` : ''}</span>
-          </button>
+          <div className="hidden xl:block w-[1px] h-6 bg-stone-200/80 mx-0.5" />
 
-          <div className="hidden sm:block w-[1px] h-6 bg-stone-200/80 mx-0.5" />
+          {/* Nhóm 2: Sáng tạo & Tác vụ chuyến đi */}
+          <div className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 flex-shrink-0">
+            {/* Tạo Bìa Sách AI */}
+            <button
+              id="open-cover-studio"
+              onClick={() => setModal('cover')}
+              className="px-3 sm:px-3.5 py-2 rounded-full bg-white hover:bg-purple-50 text-purple-700 border border-purple-200/90 text-xs sm:text-sm font-semibold shadow-2xs transition active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <i className="fa-solid fa-wand-magic-sparkles text-purple-500 text-xs" />
+              <span>Tạo Bìa AI</span>
+            </button>
 
-          {/* Thêm Ảnh */}
-          <button
-            id="open-upload"
-            onClick={() => setModal('upload')}
-            className="btn-rose py-2 px-4 rounded-full text-xs sm:text-sm font-semibold shadow-xs active:scale-95"
-          >
-            <i className="fa-solid fa-cloud-arrow-up text-xs" />
-            <span>Thêm Ảnh</span>
-          </button>
+            {/* Thêm Ảnh */}
+            <button
+              id="open-upload"
+              onClick={() => setModal('upload')}
+              className="btn-rose py-2 px-3.5 sm:px-4 rounded-full text-xs sm:text-sm font-semibold shadow-xs active:scale-95 whitespace-nowrap flex items-center gap-1.5"
+            >
+              <i className="fa-solid fa-cloud-arrow-up text-xs" />
+              <span>Thêm Ảnh</span>
+            </button>
 
-          {/* Xoá Album */}
-          <button
-            id="delete-album"
-            onClick={removeAlbum}
-            title="Xoá album"
-            className="w-8 h-8 rounded-full border border-stone-200 hover:border-rose-200 text-stone-400 hover:text-rose-600 bg-white hover:bg-rose-50 flex items-center justify-center transition shadow-2xs"
-          >
-            <i className="fa-solid fa-trash-can text-xs" />
-          </button>
+            {/* Xoá Album */}
+            <button
+              id="delete-album"
+              onClick={removeAlbum}
+              title="Xoá chuyến đi này"
+              className="w-8 h-8 rounded-full border border-stone-200 hover:border-rose-200 text-stone-400 hover:text-rose-600 bg-white hover:bg-rose-50 flex items-center justify-center transition shadow-2xs flex-shrink-0 active:scale-95"
+            >
+              <i className="fa-solid fa-trash-can text-xs" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -557,13 +563,12 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                   setDragOverIdx(null);
                 }}
                 style={{ animationDelay: `${Math.min(i, 12) * 30}ms`, transform: `rotate(${((i % 5) - 2) * 0.5}deg)` }}
-                className={`luxury-card group relative p-2.5 pb-3.5 rounded-2xl border transition-all duration-300 animate-fade-up content-visibility-auto ${
-                  dragOverIdx === i
+                className={`luxury-card group relative p-2.5 pb-3.5 rounded-2xl border transition-all duration-300 animate-fade-up content-visibility-auto ${dragOverIdx === i
                     ? 'border-2 border-rose-500 scale-105 ring-4 ring-rose-200/60 z-20 shadow-xl'
                     : 'border-stone-200/85 hover:border-rose-300 hover:shadow-xl hover:z-10 hover:!rotate-0 hover:scale-[1.02]'
-                } ${dragIdx === i ? 'opacity-40' : ''}`}
+                  } ${dragIdx === i ? 'opacity-40' : ''}`}
               >
-                <button onClick={() => setModal({ lightbox: i })} className="block w-full aspect-square overflow-hidden rounded-xl bg-stone-100 shadow-2xs">
+                <button onClick={() => setModal({ lightbox: i })} className="relative block w-full aspect-square overflow-hidden rounded-xl bg-stone-100 shadow-2xs">
                   <LazyImage
                     src={thumb(p.url)}
                     alt={p.caption || 'Ảnh kỷ niệm'}
@@ -571,6 +576,18 @@ export default function AlbumDetail({ albumId, allAlbums = [], onOpenAlbum, onBa
                     wrapperClassName="w-full h-full"
                     className="w-full h-full object-cover group-hover:scale-[1.04] transition duration-500 ease-out"
                   />
+                  {p.isVideo && (
+                    <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/65 backdrop-blur-md text-white text-[10px] font-semibold flex items-center gap-1 shadow-md pointer-events-none group-hover:bg-rose-600 transition">
+                      <i className="fa-solid fa-play text-[8px] text-amber-300" />
+                      <span>Video</span>
+                    </span>
+                  )}
+                  {p.isLivePhoto && (
+                    <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/65 backdrop-blur-md text-white text-[10px] font-semibold flex items-center gap-1 shadow-md pointer-events-none">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                      <span>Live</span>
+                    </span>
+                  )}
                 </button>
                 {p.caption && <figcaption className="font-hand text-rose-700 text-sm sm:text-base mt-2 px-1 line-clamp-1">{p.caption}</figcaption>}
                 <div className="flex items-center justify-between text-[10px] text-stone-400 font-medium px-1 mt-0.5">
